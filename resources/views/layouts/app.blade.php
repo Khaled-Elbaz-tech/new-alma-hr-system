@@ -73,7 +73,8 @@
             <!-- Sidebar -->
             <div class="col-md-2 sidebar p-0">
                 <div class="p-3 text-center border-bottom">
-                    <h5>ALMA HR System</h5>
+                    @include('partials.alma-logo', ['height' => 36])
+                    <div class="mt-2 small fw-bold" style="letter-spacing: 2px; opacity: 0.8;">HR SYSTEM</div>
                 </div>
                 <div class="p-2">
                     <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
