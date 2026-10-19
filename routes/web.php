@@ -19,6 +19,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/apply-leave', function() {
         return redirect()->route('leaves.my', ['open_form' => 1]);
     })->name('leaves.apply');
+
+    // Team leave calendar (all roles; controller scopes by department)
+    Route::get('/leaves/calendar', [App\Http\Controllers\LeaveController::class, 'calendar'])->name('leaves.calendar');
     
     // HR Manager routes
     Route::middleware(['role:super_admin,hr_manager'])->group(function () {
