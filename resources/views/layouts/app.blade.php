@@ -15,6 +15,13 @@
             min-height: 100vh;
             background: linear-gradient(180deg, #8B251E 0%, #6B1D18 100%);
             color: white;
+            width: 210px;
+            min-width: 210px;
+            max-width: 210px;
+        }
+        .sidebar a {
+            font-size: 13.5px;
+            padding: 10px 12px;
         }
         .sidebar a {
             color: #ecf0f1;
