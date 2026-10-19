@@ -150,12 +150,11 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/change-password', [App\Http\Controllers\AuthController::class, 'changePassword']);
 });
 
-
 Route::get('/plain-test', function () {
-    return 'PLAIN TEXT WORKS';// Default redirect
-Route::get('/', function () {
-    return redirect('/login');
+    return 'PLAIN TEXT WORKS';
 });
 
 Route::get('/blade-test', function () {
-    return view('blade-test');});
+    return view('blade-test');
+});
+
