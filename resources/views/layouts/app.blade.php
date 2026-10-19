@@ -13,7 +13,7 @@
         }
         .sidebar {
             min-height: 100vh;
-            background: #2c3e50;
+            background: linear-gradient(180deg, #8B251E 0%, #6B1D18 100%);
             color: white;
         }
         .sidebar a {
@@ -25,7 +25,7 @@
             margin-bottom: 2px;
         }
         .sidebar a:hover, .sidebar a.active {
-            background: #34495e;
+            background: rgba(255,255,255,0.15);
         }
         .sidebar a i {
             margin-right: 10px;
@@ -101,6 +101,9 @@
                         </a>
                         <a href="{{ route('leaves.index') }}" class="{{ request()->routeIs('leaves.index') ? 'active' : '' }}">
                             <i class="fas fa-calendar"></i> Leave Requests
+                        </a>
+                        <a href="{{ route('leaves.calendar') }}" class="{{ request()->routeIs('leaves.calendar') ? 'active' : '' }}">
+                            <i class="fas fa-calendar-alt"></i> Leave Calendar
                         </a>
                         <a href="{{ route('holidays.index') }}" class="{{ request()->routeIs('holidays.*') ? 'active' : '' }}">
                             <i class="fas fa-calendar-week"></i> Holidays
