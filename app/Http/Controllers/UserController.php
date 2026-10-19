@@ -1,0 +1,225 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\User;
+use App\Models\Role;
+use App\Models\Employee;
+use App\Models\ActivityLog;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+
+class UserController extends Controller
+{
+    use AuthorizesRequests;
+    public function index(Request $request)
+    {
+        $query = User::with(['role', 'taskAccess', 'employee']);
+        
+        if ($request->has('role_id') && $request->role_id) {
+            $query->where('role_id', $request->role_id);
+        }
+        
+        if ($request->has('is_active') && $request->is_active !== '') {
+            $query->where('is_active', $request->is_active);
+        }
+        
+        if ($request->has('search') && $request->search) {
+            $query->where('name', 'like', "%{$request->search}%")
+                  ->orWhere('email', 'like', "%{$request->search}%");
+        }
+        
+        $users = $query->orderBy('created_at', 'desc')->paginate(20);
+        $roles = Role::all();
+        
+        return view('users.index', compact('users', 'roles'));
+    }
+
+    public function create()
+    {
+        $roles = Role::all();
+        
+        return view('users.create', compact('roles'));
+    }
+
+    public function store(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|min:8',
+            'role_id' => 'required|exists:roles,id',
+            'is_active' => 'boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return back()->withErrors($validator)->withInput();
+        }
+
+        $user = User::create([
+            'name' => $request->name,
+            'email' => $request->email,
+            'password' => Hash::make($request->password),
+            'role_id' => $request->role_id,
+            'is_active' => $request->is_active ?? true,
+        ]);
+
+        // Create employee profile for employee role
+        if ($request->role_id == Role::where('name', 'employee')->first()?->id) {
+            Employee::create([
+                'user_id' => $user->id,
+                'employee_number' => 'EMP' . time(),
+                'joining_date' => now(),
+                'employment_status' => 'active',
+                'annual_leave_entitlement' => 21,
+            ]);
+        }
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'create',
+            'model_type' => User::class,
+            'model_id' => $user->id,
+            'new_values' => $request->except('password'),
+            'ip_address' => $request->ip(),
+        ]);
+
+        return redirect()->route('users.index')->with('success', 'User created successfully');
+    }
+
+    public function show(User $user)
+    {
+        $user->load('role', 'employee');
+        
+        return view('users.show', compact('user'));
+    }
+
+    public function edit(User $user)
+    {
+        $roles = Role::all();
+        
+        return view('users.edit', compact('user', 'roles'));
+    }
+
+    public function update(Request $request, User $user)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email,' . $user->id,
+            'role_id' => 'required|exists:roles,id',
+            'is_active' => 'boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return back()->withErrors($validator)->withInput();
+        }
+
+        $oldValues = $user->toArray();
+        
+        $updateData = [
+            'name' => $request->name,
+            'email' => $request->email,
+            'role_id' => $request->role_id,
+            'is_active' => $request->is_active ?? $user->is_active,
+        ];
+
+        // Update password if provided
+        if ($request->password) {
+            $updateData['password'] = Hash::make($request->password);
+        }
+
+        $user->update($updateData);
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'update',
+            'model_type' => User::class,
+            'model_id' => $user->id,
+            'old_values' => $oldValues,
+            'new_values' => $request->except('password'),
+            'ip_address' => $request->ip(),
+        ]);
+
+        return redirect()->route('users.index')->with('success', 'User updated successfully');
+    }
+
+    public function destroy(Request $request, User $user)
+    {
+        // Cannot delete self
+        if ($user->id === auth()->id()) {
+            return back()->with('error', 'You cannot delete your own account');
+        }
+
+        $user->update(['is_active' => false]);
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'delete',
+            'model_type' => User::class,
+            'model_id' => $user->id,
+            'ip_address' => $request->ip(),
+        ]);
+
+        return redirect()->route('users.index')->with('success', 'User deactivated successfully');
+    }
+
+    public function activate(Request $request, User $user)
+    {
+        $user->update(['is_active' => true]);
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'activate',
+            'model_type' => User::class,
+            'model_id' => $user->id,
+            'ip_address' => $request->ip(),
+        ]);
+
+        return back()->with('success', 'User activated successfully');
+    }
+
+    public function taskAccess()
+    {
+        // Only super admin can access this
+        if (!auth()->user()->isSuperAdmin()) {
+            abort(403, 'Unauthorized action.');
+        }
+        
+        $users = User::with(['role', 'taskAccess', 'employee'])->orderBy('created_at', 'desc')->get();
+        
+        return view('users.task-access', compact('users'));
+    }
+
+    public function toggleTaskAccess(Request $request, User $user)
+    {
+        // Only super admin can toggle task access for others
+        $this->authorize('update', $user);
+
+        $taskAccess = $user->taskAccess;
+        
+        if ($taskAccess) {
+            $taskAccess->update(['can_access_tasks' => !$taskAccess->can_access_tasks]);
+        } else {
+            // Only create task access for non-super admin/hr manager users
+            if (!$user->isSuperAdmin() && !$user->isHrManager()) {
+                $user->taskAccess()->create(['can_access_tasks' => true]);
+            } else {
+                // Super admins and HR managers always have access
+                $user->taskAccess()->create(['can_access_tasks' => true]);
+            }
+        }
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'toggle_task_access',
+            'model_type' => User::class,
+            'model_id' => $user->id,
+            'new_values' => ['can_access_tasks' => $user->fresh()->canAccessTasks()],
+            'ip_address' => $request->ip(),
+        ]);
+
+        return back()->with('success', 'Task access updated for ' . $user->name);
+    }
+}
