@@ -70,6 +70,28 @@
         .status-approved { background: #27ae60; color: white; }
         .status-rejected { background: #e74c3c; color: white; }
         .status-hr_approved { background: #9b59b6; color: white; }
+
+        /* ===== ALMA Professional Design System ===== */
+        .main-content { background-color: #f8f9fa; min-height: 100vh; }
+        .page-header { margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 2px solid #e9ecef; }
+        .page-header h1, .page-header h2 { color: #2c3e50; font-weight: 700; margin-bottom: 0.25rem; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 1.5rem; transition: box-shadow 0.2s ease; }
+        .card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.12); }
+        .card-header { background: white; border-bottom: 1px solid #e9ecef; border-radius: 12px 12px 0 0 !important; padding: 1rem 1.25rem; font-weight: 600; }
+        .table { margin-bottom: 0; }
+        .table thead th { background-color: #f8f9fa; border-bottom: 2px solid #dee2e6; color: #495057; font-weight: 600; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px; padding: 0.9rem 0.75rem; }
+        .table tbody tr:hover { background-color: #f8f9fa; }
+        .table td { padding: 0.85rem 0.75rem; vertical-align: middle; }
+        .btn { border-radius: 8px; font-weight: 500; padding: 0.5rem 1.25rem; transition: all 0.2s ease; }
+        .btn-primary { background: #8B251E; border-color: #8B251E; }
+        .btn-primary:hover { background: #6B1D18; border-color: #6B1D18; }
+        .form-control, .form-select { border-radius: 8px; border: 1px solid #dee2e6; padding: 0.6rem 0.9rem; }
+        .form-control:focus, .form-select:focus { border-color: #8B251E; box-shadow: 0 0 0 0.2rem rgba(139,37,30,0.15); }
+        .form-label { font-weight: 600; color: #495057; margin-bottom: 0.4rem; }
+        .badge { padding: 0.4em 0.8em; border-radius: 6px; font-weight: 500; }
+        .alert { border-radius: 10px; border: none; }
+        .stat-card { border-radius: 12px; overflow: hidden; transition: transform 0.2s ease; }
+        .stat-card:hover { transform: translateY(-3px); }
     </style>
     @yield('styles')
 </head>
