@@ -152,5 +152,10 @@ Route::middleware(['auth'])->group(function () {
 
 
 Route::get('/plain-test', function () {
-    return 'PLAIN TEXT WORKS';
+    return 'PLAIN TEXT WORKS';// Default redirect
+Route::get('/', function () {
+    return redirect('/login');
 });
+
+Route::get('/blade-test', function () {
+    return view('blade-test');});
