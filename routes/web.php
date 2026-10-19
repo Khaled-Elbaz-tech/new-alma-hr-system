@@ -158,3 +158,6 @@ Route::get('/blade-test', function () {
     return view('blade-test');
 });
 
+Route::get('/minimal-test', function () {
+    return view('minimal-test');
+});
