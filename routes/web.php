@@ -161,3 +161,7 @@ Route::get('/blade-test', function () {
 Route::get('/minimal-test', function () {
     return view('minimal-test');
 });
+
+Route::get('/layout-test', function () {
+    return view('layout-test');
+});
