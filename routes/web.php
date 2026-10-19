@@ -2,6 +2,11 @@
 
 use Illuminate\Support\Facades\Route;
 
+// Redirect root to login
+Route::get('/', function () {
+    return redirect()->route('login');
+});
+
 // Public routes
 Route::get('/login', [App\Http\Controllers\AuthController::class, 'showLoginForm'])->name('login');
 Route::post('/login', [App\Http\Controllers\AuthController::class, 'login']);
