@@ -18,6 +18,8 @@ class DatabaseSeeder extends Seeder
             DepartmentSeeder::class,
             AdminUserSeeder::class,
             DynamicFieldsSeeder::class,
+            SaudiLeaveTypesSeeder::class,
+            SaudiHolidays2026Seeder::class,
         ]);
     }
 }
