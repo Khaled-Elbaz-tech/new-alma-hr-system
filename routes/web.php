@@ -149,19 +149,3 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/change-password', [App\Http\Controllers\AuthController::class, 'showChangePasswordForm'])->name('password.change');
     Route::post('/change-password', [App\Http\Controllers\AuthController::class, 'changePassword']);
 });
-
-Route::get('/plain-test', function () {
-    return 'PLAIN TEXT WORKS';
-});
-
-Route::get('/blade-test', function () {
-    return view('blade-test');
-});
-
-Route::get('/minimal-test', function () {
-    return view('minimal-test');
-});
-
-Route::get('/layout-test', function () {
-    return view('layout-test');
-});
