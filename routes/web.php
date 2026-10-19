@@ -154,3 +154,7 @@ Route::middleware(['auth'])->group(function () {
 Route::get('/', function () {
     return redirect('/login');
 });
+
+Route::get('/blade-test', function () {
+    return view('blade-test');
+});
