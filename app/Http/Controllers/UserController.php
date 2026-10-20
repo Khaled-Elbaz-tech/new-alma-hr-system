@@ -16,7 +16,7 @@ class UserController extends Controller
     use AuthorizesRequests;
     public function index(Request $request)
     {
-        $query = User::with(['role', 'taskAccess', 'employee']);
+        $query = User::with(['role', 'employee']);
         
         if ($request->has('role_id') && $request->role_id) {
             $query->where('role_id', $request->role_id);
@@ -178,48 +178,5 @@ class UserController extends Controller
         ]);
 
         return back()->with('success', 'User activated successfully');
-    }
-
-    public function taskAccess()
-    {
-        // Only super admin can access this
-        if (!auth()->user()->isSuperAdmin()) {
-            abort(403, 'Unauthorized action.');
-        }
-        
-        $users = User::with(['role', 'taskAccess', 'employee'])->orderBy('created_at', 'desc')->get();
-        
-        return view('users.task-access', compact('users'));
-    }
-
-    public function toggleTaskAccess(Request $request, User $user)
-    {
-        // Only super admin can toggle task access for others
-        $this->authorize('update', $user);
-
-        $taskAccess = $user->taskAccess;
-        
-        if ($taskAccess) {
-            $taskAccess->update(['can_access_tasks' => !$taskAccess->can_access_tasks]);
-        } else {
-            // Only create task access for non-super admin/hr manager users
-            if (!$user->isSuperAdmin() && !$user->isHrManager()) {
-                $user->taskAccess()->create(['can_access_tasks' => true]);
-            } else {
-                // Super admins and HR managers always have access
-                $user->taskAccess()->create(['can_access_tasks' => true]);
-            }
-        }
-
-        ActivityLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'toggle_task_access',
-            'model_type' => User::class,
-            'model_id' => $user->id,
-            'new_values' => ['can_access_tasks' => $user->fresh()->canAccessTasks()],
-            'ip_address' => $request->ip(),
-        ]);
-
-        return back()->with('success', 'Task access updated for ' . $user->name);
     }
 }

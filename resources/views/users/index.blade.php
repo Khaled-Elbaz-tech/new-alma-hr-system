@@ -50,14 +50,12 @@
                             <th>Role</th>
                             <th>Employee Binding</th>
                             <th>Status</th>
-                            <th>Task Access</th>
                             <th>Last Login</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                         <tbody>
                             @foreach($users as $user)
-                            @php $taskAccess = $user->taskAccess; @endphp
                             <tr>
                                 <td><strong>{{ $user->name }}</strong></td>
                                 <td>{{ $user->email }}</td>
@@ -83,21 +81,6 @@
                                     <span class="badge bg-{{ $user->is_active ? 'success' : 'secondary' }}">
                                         {{ $user->is_active ? 'Active' : 'Inactive' }}
                                     </span>
-                                </td>
-                                <td>
-                                    @if($user->role && in_array($user->role->name, ['super_admin', 'hr_manager']))
-                                        <span class="badge bg-success">
-                                            <i class="fas fa-check"></i> Enabled
-                                        </span>
-                                    @else
-                                        <form action="{{ route('users.toggle-task-access', $user) }}" method="POST" class="d-inline">
-                                            @csrf
-                                            <button type="submit" class="btn btn-sm {{ $taskAccess && $taskAccess->can_access_tasks ? 'btn-success' : 'btn-outline-secondary' }}">
-                                                <i class="fas {{ $taskAccess && $taskAccess->can_access_tasks ? 'fa-toggle-on' : 'fa-toggle-off' }}"></i>
-                                                {{ $taskAccess && $taskAccess->can_access_tasks ? 'Enabled' : 'Disabled' }}
-                                            </button>
-                                        </form>
-                                    @endif
                                 </td>
                                 <td>{{ $user->last_login ? $user->last_login->format('d M Y H:i') : 'Never' }}</td>
                                 <td>
@@ -146,7 +129,6 @@
             <li>One user = one employee (unique binding)</li>
             <li>Email must be unique across all users</li>
             <li>Super Admin only can manage users</li>
-            <li>Task Management access can be toggled for employees/managers</li>
         </ul>
     </div>
 @endsection

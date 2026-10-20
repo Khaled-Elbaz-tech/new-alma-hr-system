@@ -103,8 +103,6 @@ Route::middleware(['auth'])->group(function () {
         // User Management
         Route::resource('users', App\Http\Controllers\UserController::class);
         Route::post('/users/{user}/activate', [App\Http\Controllers\UserController::class, 'activate'])->name('users.activate');
-        Route::post('/users/{user}/toggle-task-access', [App\Http\Controllers\UserController::class, 'toggleTaskAccess'])->name('users.toggle-task-access');
-        Route::get('/users/task-access', [App\Http\Controllers\UserController::class, 'taskAccess'])->name('users.task-access');
 
         // Activity Logs
         Route::get('/activity-logs', [App\Http\Controllers\ActivityLogController::class, 'index'])->name('activity-logs.index');
@@ -114,31 +112,6 @@ Route::middleware(['auth'])->group(function () {
         // Dynamic Form Builder (Admin only - field definitions)
         Route::resource('dynamic-forms', App\Http\Controllers\DynamicFormController::class);
     });
-
-    // Task Management - accessible by super_admin, hr_manager, and users with task access
-    Route::middleware(['auth'])->group(function () {
-        // Workspace (Task Dashboard)
-        Route::get('/workspace', [App\Http\Controllers\TaskController::class, 'workspace'])->name('tasks.workspace');
-    });
-
-    Route::middleware(['auth'])->group(function () {
-        Route::get('/tasks', [App\Http\Controllers\TaskController::class, 'index'])->name('tasks.index');
-        Route::get('/tasks/create', [App\Http\Controllers\TaskController::class, 'create'])->name('tasks.create');
-        Route::post('/tasks', [App\Http\Controllers\TaskController::class, 'store'])->name('tasks.store');
-        Route::get('/tasks/{task}', [App\Http\Controllers\TaskController::class, 'show'])->name('tasks.show');
-        Route::get('/tasks/{task}/edit', [App\Http\Controllers\TaskController::class, 'edit'])->name('tasks.edit');
-        Route::put('/tasks/{task}', [App\Http\Controllers\TaskController::class, 'update'])->name('tasks.update');
-        Route::delete('/tasks/{task}', [App\Http\Controllers\TaskController::class, 'destroy'])->name('tasks.destroy');
-        Route::put('/tasks/{task}/status', [App\Http\Controllers\TaskController::class, 'updateStatus'])->name('tasks.update-status');
-        
-        // Subtasks
-        Route::post('/tasks/{task}/subtasks', [App\Http\Controllers\TaskController::class, 'addSubtask'])->name('tasks.subtasks.store');
-        Route::put('/subtasks/{subtask}', [App\Http\Controllers\TaskController::class, 'updateSubtask'])->name('tasks.subtasks.update');
-        Route::delete('/subtasks/{subtask}', [App\Http\Controllers\TaskController::class, 'destroySubtask'])->name('tasks.subtasks.destroy');
-        
-         // Comments
-         Route::post('/tasks/{task}/comments', [App\Http\Controllers\TaskController::class, 'addComment'])->name('tasks.comments.store');
-     });
 
       // Employee Custom Field Access (Employees can view/edit their own field values)
       Route::middleware(['auth'])->group(function () {

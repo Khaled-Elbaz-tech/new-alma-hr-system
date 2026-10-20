@@ -115,17 +115,4 @@ class User extends Authenticatable
         return $this->role && in_array($this->role->name, ['super_admin', 'hr_manager', 'manager', 'dm', 'employee']);
     }
 
-    public function canAccessTasks(): bool
-    {
-        if ($this->isSuperAdmin() || $this->isHrManager()) {
-            return true;
-        }
-        
-        return $this->taskAccess ? $this->taskAccess->can_access_tasks : false;
-    }
-
-    public function taskAccess()
-    {
-        return $this->hasOne(UserTaskAccess::class);
-    }
 }
