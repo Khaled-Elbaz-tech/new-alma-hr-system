@@ -6,11 +6,21 @@
     <title>@yield('title', 'ALMA HR System')</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #f5f6fa;
+            font-size: 15.5px;
+            line-height: 1.6;
+            color: #212529;
+            -webkit-font-smoothing: antialiased;
         }
+        h1, h2, h3, h4, h5, h6 { font-weight: 700; color: #1a1a2e; }
+        .table { font-size: 15px; }
+        .btn { font-size: 14.5px; }
+        .form-control, .form-select { font-size: 15px; }
+        .card-body { font-size: 15px; }
         .sidebar {
             min-height: 100vh;
             background: linear-gradient(180deg, #8B251E 0%, #6B1D18 100%);
@@ -102,7 +112,9 @@
             <!-- Sidebar -->
             <div class="col-md-2 sidebar p-0">
                 <div class="p-3 text-center border-bottom">
-                    @include('partials.alma-logo', ['height' => 36])
+                    <div style="background: #fff; border-radius: 10px; padding: 8px 12px; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,.2);">
+                        @include('partials.alma-logo', ['height' => 34])
+                    </div>
                     <div class="mt-2 small fw-bold" style="letter-spacing: 2px; opacity: 0.8;">HR SYSTEM</div>
                 </div>
                 <div class="p-2">
@@ -153,7 +165,7 @@
                             <i class="fas fa-chart-pie"></i> Department
                         </a>
                         <a href="{{ route('reports.employee') }}">
-                            <i class="fas fa-user-chart"></i> Employee
+                            <i class="fas fa-id-card"></i> Employee
                         </a>
                         <a href="{{ route('reports.leave-statistics') }}">
                             <i class="fas fa-chart-line"></i> Statistics
