@@ -23,7 +23,7 @@
         .card-body { font-size: 15px; }
         .sidebar {
             min-height: 100vh;
-            background: linear-gradient(180deg, #8B251E 0%, #6B1D18 100%);
+            background: linear-gradient(180deg, #6B1D18 0%, #521510 55%, #3D0E09 100%);
             color: white;
             width: 210px;
             min-width: 210px;
