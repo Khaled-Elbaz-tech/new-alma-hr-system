@@ -44,6 +44,7 @@ Route::middleware(['auth'])->group(function () {
     // HR Manager routes continued
     Route::middleware(['role:super_admin,hr_manager'])->group(function () {
         Route::resource('departments', App\Http\Controllers\DepartmentController::class);
+        Route::delete('/departments/{department}/force-delete', [App\Http\Controllers\DepartmentController::class, 'forceDelete'])->name('departments.force-delete');
         
         // Leave Management
         Route::get('/leaves', [App\Http\Controllers\LeaveController::class, 'index'])->name('leaves.index');
