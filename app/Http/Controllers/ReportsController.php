@@ -282,6 +282,8 @@ class ReportsController extends Controller
         $year = $request->year;
         
         $query = Employee::with(['user', 'department'])
+            ->join('users', 'users.id', '=', 'employees.user_id')
+            ->select('employees.*')
             ->where('employment_status', 'active');
         
         if ($departmentId) {
