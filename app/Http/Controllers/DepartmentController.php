@@ -123,4 +123,24 @@ class DepartmentController extends Controller
 
         return redirect()->route('departments.index')->with('success', 'Department deactivated successfully');
     }
+
+    public function forceDelete(Request $request, Department $department)
+    {
+        if ($department->employees()->count() > 0) {
+            return back()->with('error', 'Cannot permanently delete department with employees. Please reassign employees first.');
+        }
+
+        $departmentName = $department->name;
+        $department->delete();
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'force_delete',
+            'model_type' => Department::class,
+            'model_id' => $department->id,
+            'ip_address' => $request->ip(),
+        ]);
+
+        return redirect()->route('departments.index')->with('success', "Department '{$departmentName}' permanently deleted successfully");
+    }
 }
