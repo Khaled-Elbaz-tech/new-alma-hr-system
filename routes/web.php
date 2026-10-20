@@ -37,6 +37,7 @@ Route::middleware(['auth'])->group(function () {
     // Import/Export - accessible by hr_manager and super_admin
     Route::middleware(['auth', 'role:super_admin,hr_manager'])->group(function () {
         Route::get('/employees/data/export', [App\Http\Controllers\EmployeeController::class, 'export'])->name('employees.export');
+        Route::get('/employees/data/export-excel', [App\Http\Controllers\EmployeeController::class, 'exportExcel'])->name('employees.export-excel');
         Route::post('/employees/data/import', [App\Http\Controllers\EmployeeController::class, 'import'])->name('employees.import');
         Route::get('/employees/data/template', [App\Http\Controllers\EmployeeController::class, 'downloadTemplate'])->name('employees.download-template');
     });
