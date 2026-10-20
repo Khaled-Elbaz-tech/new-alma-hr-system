@@ -11,10 +11,18 @@
                 <h5 class="mb-0">Edit Employee</h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ route('employees.update', $employee) }}">
+                <form method="POST" action="{{ route('employees.update', $employee) }}" enctype="multipart/form-data">
                     @csrf
                     @method('PUT')
                     <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Profile Photo</label>
+                            <div class="d-flex align-items-center gap-3 mb-2">
+                                <img src="{{ $employee->avatar_url }}" alt="Avatar" class="rounded-circle" width="60" height="60" style="object-fit: cover;">
+                                <input type="file" name="avatar" class="form-control" accept="image/*">
+                            </div>
+                            <small class="text-muted">Max 2MB. JPG, PNG, GIF.</small>
+                        </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Full Name</label>
                             <input type="text" name="name" class="form-control" value="{{ old('name', $employee->user->name) }}" required>

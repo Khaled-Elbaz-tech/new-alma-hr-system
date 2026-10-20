@@ -115,7 +115,10 @@
                             <tr>
                                 <td>{{ $employee->employee_number }}</td>
                                 <td>
-                                    <strong>{{ $employee->user->name }}</strong>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <img src="{{ $employee->avatar_url }}" alt="{{ $employee->user->name }}" class="rounded-circle" width="38" height="38" style="object-fit: cover;">
+                                        <strong>{{ $employee->user->name }}</strong>
+                                    </div>
                                 </td>
                                 <td>{{ $employee->user->email }}</td>
                                 <td>{{ $employee->department->name ?? 'N/A' }}</td>

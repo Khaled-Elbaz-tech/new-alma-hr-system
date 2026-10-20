@@ -11,9 +11,14 @@
                 <h5 class="mb-0">Employee Information</h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ route('employees.store') }}">
+                <form method="POST" action="{{ route('employees.store') }}" enctype="multipart/form-data">
                     @csrf
                     <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Profile Photo</label>
+                            <input type="file" name="avatar" class="form-control" accept="image/*">
+                            <small class="text-muted">Max 2MB. JPG, PNG, GIF.</small>
+                        </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Full Name</label>
                             <input type="text" name="name" class="form-control" value="{{ old('name') }}" required>
