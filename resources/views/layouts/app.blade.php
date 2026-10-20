@@ -224,6 +224,12 @@
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h4>@yield('page-title', 'Dashboard')</h4>
                     <div class="d-flex align-items-center gap-3">
+                        <form action="{{ route('employees.index') }}" method="GET" class="d-flex" style="max-width: 280px;">
+                            <div class="input-group input-group-sm">
+                                <input type="text" name="search" class="form-control" placeholder="Search employees..." value="{{ request('search') }}">
+                                <button class="btn btn-outline-secondary" type="submit"><i class="fas fa-search"></i></button>
+                            </div>
+                        </form>
                         <span>Welcome, {{ auth()->user()->name }}</span>
                         <span class="badge bg-primary">{{ auth()->user()->role->display_name ?? 'User' }}</span>
                     </div>
