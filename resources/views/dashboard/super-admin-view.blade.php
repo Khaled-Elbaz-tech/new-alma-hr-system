@@ -267,4 +267,43 @@
         </div>
     </div>
 </div>
+
+<!-- Charts Row -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0"><i class="fas fa-chart-pie"></i> Employees by Department</h5></div>
+            <div class="card-body"><canvas id="deptChart" height="220"></canvas></div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0"><i class="fas fa-chart-bar"></i> Employee Status</h5></div>
+            <div class="card-body"><canvas id="statusChart" height="220"></canvas></div>
+        </div>
+    </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const deptCtx = document.getElementById('deptChart');
+    if (deptCtx) {
+        new Chart(deptCtx, {
+            type: 'doughnut',
+            data: {
+                labels: {!! json_encode($departments->pluck('name')) !!},
+                datasets: [{ data: {!! json_encode($departments->pluck('employees_count')) !!}, backgroundColor: ['#8B251E','#3498db','#27ae60','#f39c12','#9b59b6','#1abc9c','#e74c3c','#34495e','#e67e22'], borderWidth: 2, borderColor: '#fff' }]
+            },
+            options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+        });
+    }
+    const statusCtx = document.getElementById('statusChart');
+    if (statusCtx) {
+        new Chart(statusCtx, {
+            type: 'bar',
+            data: { labels: ['Active', 'Inactive'], datasets: [{ label: 'Employees', data: [{{ $activeEmployees ?? 0 }}, {{ $inactiveEmployees ?? 0 }}], backgroundColor: ['#27ae60', '#95a5a6'], borderRadius: 8 }] },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+        });
+    }
+});
+</script>
 @endsection
