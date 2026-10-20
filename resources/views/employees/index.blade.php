@@ -27,7 +27,10 @@
         </div>
         
         <a href="{{ route('employees.export') }}" class="btn btn-info">
-            <i class="fas fa-file-export"></i> Export
+            <i class="fas fa-file-csv"></i> Export CSV
+        </a>
+        <a href="{{ route('employees.export-excel') }}" class="btn btn-success">
+            <i class="fas fa-file-excel"></i> Export Excel
         </a>
     </div>
 </div>
