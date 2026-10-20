@@ -235,6 +235,25 @@
                     </div>
                 </div>
                 
+                <!-- Breadcrumb -->
+                <nav aria-label="breadcrumb" class="mb-3">
+                    <ol class="breadcrumb" style="background: white; padding: 0.6rem 1rem; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); margin-bottom: 0;">
+                        <li class="breadcrumb-item"><a href="{{ route('dashboard') }}"><i class="fas fa-home"></i> Home</a></li>
+                        @php
+                            $segments = request()->segments();
+                            $url = '';
+                        @endphp
+                        @foreach($segments as $index => $segment)
+                            @php $url .= '/' . $segment; @endphp
+                            @if($index === count($segments) - 1)
+                                <li class="breadcrumb-item active" aria-current="page">{{ ucwords(str_replace('-', ' ', $segment)) }}</li>
+                            @else
+                                <li class="breadcrumb-item">{{ ucwords(str_replace('-', ' ', $segment)) }}</li>
+                            @endif
+                        @endforeach
+                    </ol>
+                </nav>
+
                 @if(session('success'))
                     <div class="alert alert-success">{{ session('success') }}</div>
                 @endif
