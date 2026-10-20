@@ -20,6 +20,7 @@ class Employee extends Model
         'department_id',
         'employment_status',
         'annual_leave_entitlement',
+        'avatar',
     ];
 
     protected $casts = [
@@ -28,6 +29,16 @@ class Employee extends Model
         'contract_end_date' => 'date',
         'annual_leave_entitlement' => 'decimal:2',
     ];
+
+    public function getAvatarUrlAttribute(): string
+    {
+        if ($this->avatar) {
+            return asset('storage/' . $this->avatar);
+        }
+        // Fallback: initials avatar via ui-avatars
+        $name = $this->user->name ?? 'Employee';
+        return 'https://ui-avatars.com/api/?name=' . urlencode($name) . '&background=8B251E&color=fff&size=128';
+    }
 
     public function user()
     {

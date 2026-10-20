@@ -12,6 +12,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Storage;
 
 class EmployeeController extends Controller
 {
@@ -62,6 +63,7 @@ class EmployeeController extends Controller
             'department_id' => 'nullable|exists:departments,id',
             'role_id' => 'required|exists:roles,id',
             'annual_leave_entitlement' => 'nullable|numeric|min:0',
+            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
         if ($validator->fails()) {
@@ -88,6 +90,12 @@ class EmployeeController extends Controller
             'employment_status' => 'active',
             'annual_leave_entitlement' => $request->annual_leave_entitlement ?? 21,
         ]);
+
+        // Handle avatar upload
+        if ($request->hasFile('avatar')) {
+            $avatarPath = $request->file('avatar')->store('avatars', 'public');
+            $employee->update(['avatar' => $avatarPath]);
+        }
 
         // Log activity
         ActivityLog::create([
@@ -147,6 +155,7 @@ class EmployeeController extends Controller
             'role_id' => 'required|exists:roles,id',
             'annual_leave_entitlement' => 'nullable|numeric|min:0',
             'employment_status' => 'required|in:active,resigned,terminated,on_leave',
+            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
         if ($validator->fails()) {
@@ -179,6 +188,16 @@ class EmployeeController extends Controller
             'employment_status' => $request->employment_status,
             'annual_leave_entitlement' => $request->annual_leave_entitlement ?? 21,
         ]);
+
+        // Handle avatar upload
+        if ($request->hasFile('avatar')) {
+            // Delete old avatar if exists
+            if ($employee->avatar) {
+                Storage::disk('public')->delete($employee->avatar);
+            }
+            $avatarPath = $request->file('avatar')->store('avatars', 'public');
+            $employee->update(['avatar' => $avatarPath]);
+        }
 
         // Log activity
         ActivityLog::create([
