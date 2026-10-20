@@ -321,6 +321,9 @@ class LeaveController extends Controller
             'created_by' => Auth::id(),
         ]);
 
+        // Email notification (no-op until HR_NOTIFICATIONS_ENABLED=true)
+        app(\App\Services\LeaveNotificationService::class)->notifyNewRequest($leaveRequest);
+
         // Log activity
         ActivityLog::create([
             'user_id' => Auth::id(),
@@ -743,6 +746,9 @@ class LeaveController extends Controller
         $leave->hr_comments = $request->hr_comments ?? null;
         $leave->save();
 
+        // Email notification (no-op until enabled)
+        app(\App\Services\LeaveNotificationService::class)->notifyStatusChanged($leave);
+
         // Log activity
         ActivityLog::create([
             'user_id' => Auth::id(),
@@ -776,6 +782,9 @@ class LeaveController extends Controller
         $leave->manager_comments = $request->manager_comments ?? null;
         $leave->save();
 
+        // Email notification (no-op until enabled)
+        app(\App\Services\LeaveNotificationService::class)->notifyStatusChanged($leave);
+
         // Log activity
         ActivityLog::create([
             'user_id' => Auth::id(),
@@ -807,6 +816,9 @@ class LeaveController extends Controller
         $leave->rejected_at = now();
         $leave->rejection_reason = $request->rejection_reason;
         $leave->save();
+
+        // Email notification (no-op until enabled)
+        app(\App\Services\LeaveNotificationService::class)->notifyStatusChanged($leave);
 
         // No manual balance adjustment needed - balances are calculated dynamically.
         // Rejected leave requests are not counted in the calculation engine's
