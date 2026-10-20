@@ -124,7 +124,7 @@
                             <i class="fas fa-users"></i> Employees
                         </a>
                         <a href="{{ route('employees.documents') }}" class="{{ request()->routeIs('employees.documents*') ? 'active' : '' }}">
-                            <i class="fas fa-file-alt"></i> Employees Documents
+                            <i class="fas fa-file-alt"></i> Documents
                         </a>
                         <a href="{{ route('departments.index') }}" class="{{ request()->routeIs('departments.*') ? 'active' : '' }}">
                             <i class="fas fa-building"></i> Departments
@@ -181,7 +181,7 @@
                             <i class="fas fa-history"></i> Activity Logs
                         </a>
                         <a href="{{ route('dynamic-forms.index') }}" class="{{ request()->routeIs('dynamic-forms.*') ? 'active' : '' }}">
-                            <i class="fas fa-forms"></i> Dynamic Fields
+                            <i class="fas fa-list-check"></i> Dynamic Fields
                         </a>
                     @endif
                     
