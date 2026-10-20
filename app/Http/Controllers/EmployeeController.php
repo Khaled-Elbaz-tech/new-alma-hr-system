@@ -554,4 +554,51 @@ class EmployeeController extends Controller
         
         return back()->with('success', "Successfully imported $rowCount employees. ($skipCount were skipped - already exist)");
     }
+    public function exportExcel()
+    {
+        $employees = Employee::with(['user', 'department'])->get();
+
+        $headers = ['Employee Number', 'Full Name', 'Email', 'Department', 'Joining Date', 'Employment Status', 'Annual Leave Entitlement', 'Contract Start', 'Contract End'];
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Employees');
+
+        // Header row with Alma burgundy styling
+        foreach ($headers as $col => $header) {
+            $cell = $sheet->getCellByColumnAndRow($col + 1, 1);
+            $cell->setValue($header);
+            $cell->getStyle()->getFont()->setBold(true)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('FFFFFF'));
+            $cell->getStyle()->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                ->getStartColor()->setRGB('8B251E');
+        }
+
+        $row = 2;
+        foreach ($employees as $emp) {
+            $sheet->setCellValueByColumnAndRow(1, $row, $emp->employee_number);
+            $sheet->setCellValueByColumnAndRow(2, $row, $emp->user->name ?? '');
+            $sheet->setCellValueByColumnAndRow(3, $row, $emp->user->email ?? '');
+            $sheet->setCellValueByColumnAndRow(4, $row, $emp->department->name ?? '');
+            $sheet->setCellValueByColumnAndRow(5, $row, $emp->joining_date ? $emp->joining_date->format('Y-m-d') : '');
+            $sheet->setCellValueByColumnAndRow(6, $row, $emp->employment_status);
+            $sheet->setCellValueByColumnAndRow(7, $row, $emp->annual_leave_entitlement ?? '');
+            $sheet->setCellValueByColumnAndRow(8, $row, $emp->contract_start_date ? $emp->contract_start_date->format('Y-m-d') : '');
+            $sheet->setCellValueByColumnAndRow(9, $row, $emp->contract_end_date ? $emp->contract_end_date->format('Y-m-d') : '');
+            $row++;
+        }
+
+        foreach (range('A', 'I') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        $filename = 'employees_' . date('Y-m-d') . '.xlsx';
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
 }
