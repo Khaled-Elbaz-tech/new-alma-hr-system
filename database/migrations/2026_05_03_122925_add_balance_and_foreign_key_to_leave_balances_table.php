@@ -12,10 +12,18 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // MySQL: a foreign key needs identical column types on both sides.
+        // leave_balances.year is YEAR, leave_years.year is INT — align them first.
+        Schema::table('leave_balances', function (Blueprint $table) {
+            $table->integer('year')->change();
+        });
+
         Schema::table('leave_balances', function (Blueprint $table) {
             // Add balance column (stored, can be negative)
-            $table->decimal('balance', 10, 2)->default(0)->after('exit_reentry_count')
-                  ->comment('Remaining balance: entitled - used (can be negative)');
+            if (! Schema::hasColumn('leave_balances', 'balance')) {
+                $table->decimal('balance', 10, 2)->default(0)->after('exit_reentry_count')
+                      ->comment('Remaining balance: entitled - used (can be negative)');
+            }
             
             // Add foreign key to leave_years table
             $table->foreign('year')
