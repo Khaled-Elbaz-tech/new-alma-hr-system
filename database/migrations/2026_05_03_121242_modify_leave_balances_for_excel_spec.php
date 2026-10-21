@@ -12,6 +12,12 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // MySQL: the unique index also backs the employee_id foreign key,
+        // so the FK needs its own index first or the drop is refused (error 1553).
+        Schema::table('leave_balances', function (Blueprint $table) {
+            $table->index('employee_id');
+        });
+
         Schema::table('leave_balances', function (Blueprint $table) {
             // Drop the unique index first (required for SQLite)
             $table->dropUnique(['employee_id', 'leave_type_id', 'year']);
