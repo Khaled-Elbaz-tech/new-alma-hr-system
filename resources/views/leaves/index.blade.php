@@ -13,6 +13,9 @@
         <a href="{{ route('leaves.create-for-employee') }}" class="btn btn-success">
             <i class="fas fa-user-plus"></i> Create Leave for Employee
         </a>
+        <a href="{{ route('leaves.historical.create') }}" class="btn btn-warning">
+            <i class="fas fa-history"></i> Record Historical Leave
+        </a>
         @endif
     </div>
 </div>
