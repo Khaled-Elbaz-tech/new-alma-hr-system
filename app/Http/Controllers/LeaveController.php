@@ -925,6 +925,53 @@ class LeaveController extends Controller
     }
 
     /**
+     * Show the form to record a historical leave (past leave entry)
+     */
+    public function createHistorical()
+    {
+        if (!Auth::user()->hasAnyRole(['super_admin', 'hr_manager'])) {
+            abort(403);
+        }
+
+        $leaveTypes = LeaveType::where('is_active', true)->get();
+        $employees = Employee::with('user')->get();
+
+        return view('leaves.historical', compact('leaveTypes', 'employees'));
+    }
+
+    /**
+     * Download the CSV template for importing historical leaves
+     * One row per employee with only the Employee Number filled in.
+     */
+    public function historicalTemplate()
+    {
+        if (!Auth::user()->hasAnyRole(['super_admin', 'hr_manager'])) {
+            abort(403);
+        }
+
+        $headers = [
+            'Employee Number',
+            'Leave Type',
+            'Start Date',
+            'End Date',
+            'Total Days',
+            'Calendar Days',
+            'Reason',
+        ];
+
+        $csvData = implode(',', $headers) . "\n";
+        $employees = Employee::orderBy('employee_number')->get();
+        foreach ($employees as $employee) {
+            $csvData .= $employee->employee_number . ",,,,,,\n";
+        }
+
+        return response($csvData, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="historical-leaves-template.csv"',
+        ]);
+    }
+
+    /**
      * Manager view: all leave requests for employees in manager's department
      */
     public function managerIndex(Request $request)

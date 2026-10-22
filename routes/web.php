@@ -57,6 +57,8 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/leaves/{leaveRequest}/reject', [App\Http\Controllers\LeaveController::class, 'reject'])->name('leaves.reject');
         Route::post('/leaves/{leaveRequest}/cancel', [App\Http\Controllers\LeaveController::class, 'cancel'])->name('leaves.cancel');
         Route::post('/leaves/historical', [App\Http\Controllers\LeaveController::class, 'storeHistorical'])->name('leaves.historical');
+        Route::get('/leaves/historical/create', [App\Http\Controllers\LeaveController::class, 'createHistorical'])->name('leaves.historical.create');
+        Route::get('/leaves/historical/template', [App\Http\Controllers\LeaveController::class, 'historicalTemplate'])->name('leaves.historical.template');
 
         // Leave Balance Management (HR)
         Route::get('/leaves/balances', [App\Http\Controllers\LeaveController::class, 'manageBalances'])->name('leaves.manage-balances');
