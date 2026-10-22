@@ -566,7 +566,7 @@ class EmployeeController extends Controller
 
         // Header row with Alma burgundy styling
         foreach ($headers as $col => $header) {
-            $cell = $sheet->getCellByColumnAndRow($col + 1, 1);
+            $cell = $sheet->getCell([$col + 1, 1]);
             $cell->setValue($header);
             $cell->getStyle()->getFont()->setBold(true)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('FFFFFF'));
             $cell->getStyle()->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
@@ -575,15 +575,15 @@ class EmployeeController extends Controller
 
         $row = 2;
         foreach ($employees as $emp) {
-            $sheet->setCellValueByColumnAndRow(1, $row, $emp->employee_number);
-            $sheet->setCellValueByColumnAndRow(2, $row, $emp->user->name ?? '');
-            $sheet->setCellValueByColumnAndRow(3, $row, $emp->user->email ?? '');
-            $sheet->setCellValueByColumnAndRow(4, $row, $emp->department->name ?? '');
-            $sheet->setCellValueByColumnAndRow(5, $row, $emp->joining_date ? $emp->joining_date->format('Y-m-d') : '');
-            $sheet->setCellValueByColumnAndRow(6, $row, $emp->employment_status);
-            $sheet->setCellValueByColumnAndRow(7, $row, $emp->annual_leave_entitlement ?? '');
-            $sheet->setCellValueByColumnAndRow(8, $row, $emp->contract_start_date ? $emp->contract_start_date->format('Y-m-d') : '');
-            $sheet->setCellValueByColumnAndRow(9, $row, $emp->contract_end_date ? $emp->contract_end_date->format('Y-m-d') : '');
+            $sheet->setCellValue([1, $row], $emp->employee_number);
+            $sheet->setCellValue([2, $row], $emp->user->name ?? '');
+            $sheet->setCellValue([3, $row], $emp->user->email ?? '');
+            $sheet->setCellValue([4, $row], $emp->department->name ?? '');
+            $sheet->setCellValue([5, $row], $emp->joining_date ? $emp->joining_date->format('Y-m-d') : '');
+            $sheet->setCellValue([6, $row], $emp->employment_status);
+            $sheet->setCellValue([7, $row], $emp->annual_leave_entitlement ?? '');
+            $sheet->setCellValue([8, $row], $emp->contract_start_date ? $emp->contract_start_date->format('Y-m-d') : '');
+            $sheet->setCellValue([9, $row], $emp->contract_end_date ? $emp->contract_end_date->format('Y-m-d') : '');
             $row++;
         }
 
