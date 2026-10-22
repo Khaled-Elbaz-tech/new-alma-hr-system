@@ -138,7 +138,8 @@
                                         {{ ucfirst($employee->employment_status) }}
                                     </span>
                                 </td>
-                                <td>
+                                <td class="text-nowrap">
+                                    <div class="d-flex flex-nowrap align-items-center gap-1">
                                     <a href="{{ route('employees.show', $employee) }}" class="btn btn-sm btn-info">
                                         <i class="fas fa-eye"></i> View
                                     </a>
@@ -167,6 +168,7 @@
                                             </form>
                                         @endif
                                     @endcan
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach
