@@ -34,6 +34,10 @@
             </div>
         </form>
 
+        <div class="alert alert-info py-2">
+            <i class="fas fa-info-circle"></i>
+            Visible-balance policy: the current year's entitlement is hidden from balances until 1 January of the next year. Balances shown count closed years only; negative balances are shown as-is.
+        </div>
         <div class="table-responsive">
             <table class="table table-bordered table-hover">
                 <thead class="table-light">
@@ -58,7 +62,7 @@
                             </td>
                             <td>{{ $balance->year }}</td>
                             <td>{{ $balance->months_from_hiring }}</td>
-                            <td>{{ number_format($balance->entitled_days, 2) }}</td>
+                            <td>{{ $balance->entitled_days === null ? '—' : number_format($balance->entitled_days, 2) }}</td>
                             <td>{{ number_format($balance->used_days, 2) }}</td>
                             <td>
                                 <strong class="{{ $balance->balance >= 0 ? 'text-success' : 'text-danger' }}">

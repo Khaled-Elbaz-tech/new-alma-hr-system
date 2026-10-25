@@ -43,8 +43,11 @@
                     <div class="mb-3">
                         <label class="form-label">Days Entitled</label>
                         <input type="number" step="0.01" name="entitled_days" class="form-control"
-                               value="{{ old('entitled_days', $balance->entitled_days) }}" required>
+                               value="{{ old('entitled_days', $balance->entitled_days ?? '') }}" @if($balance->entitled_days !== null) required @endif>
                         <small class="text-muted">Calculated as 1.75 × months worked, but HR can override</small>
+                        @if($balance->entitled_days === null)
+                            <br><small class="text-muted">Current-year entitlement is hidden from balances until 1 January {{ $visibleBalance['current_year'] + 1 }} (visible-balance policy).</small>
+                        @endif
                     </div>
 
                     <div class="mb-3">
@@ -67,7 +70,8 @@
                     </div>
 
                     <div class="alert alert-info">
-                        <strong>Current Balance:</strong> {{ number_format($balance->balance, 2) }} days
+                        <strong>Available Balance (visible):</strong> {{ number_format($visibleBalance['visible_balance'], 2) }} days
+                        <br><small>Counts closed years only. The current year's ({{ $visibleBalance['current_year'] }}) entitlement opens on {{ $visibleBalance['opens_on'] }}. Negative balances are shown as-is.</small>
                     </div>
 
                     <div class="d-flex justify-content-between">
