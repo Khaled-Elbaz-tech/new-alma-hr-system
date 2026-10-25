@@ -14,7 +14,9 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class LeaveController extends Controller
 {
@@ -26,47 +28,83 @@ class LeaveController extends Controller
         $query = LeaveRequest::with(['employee.user', 'leaveType'])
             ->orderBy('created_at', 'desc');
 
-        // Filter by employee for non-super_admin
-        if (Auth::user()->hasRole('hr_manager') && !Auth::user()->hasRole('super_admin')) {
-            $query->where('employee_id', Auth::user()->employee->id);
-        }
+        // WF-12 (merged base): HR (super_admin and hr_manager) see ALL leave
+        // requests, including historical ones. No employee scoping here — this
+        // page is the HR overview; employees use leaves.my for their own
+        // requests. (The filters version's hr_manager self-scoping block was
+        // dropped in the merge; the filters themselves are kept below.)
 
-        // Search filter
+        // Search by employee name, employee number or reason
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->whereHas('employee.user', function ($q2) use ($search) {
                     $q2->where('name', 'like', "%{$search}%");
-                })->orWhere('employee_id', 'like', "%{$search}%");
+                })->orWhereHas('employee', function ($q2) use ($search) {
+                    $q2->where('employee_number', 'like', "%{$search}%");
+                })->orWhere('reason', 'like', "%{$search}%");
             });
         }
 
-        // Status filter
-        if ($request->filled('status')) {
+        // Status filter (whitelisted values only)
+        if ($request->filled('status') && in_array($request->status, ['pending', 'hr_approved', 'manager_approved', 'approved', 'rejected', 'cancelled'], true)) {
             $query->where('status', $request->status);
         }
 
         // Leave type filter
-        if ($request->filled('leave_type_id')) {
-            $query->where('leave_type_id', $request->leave_type_id);
+        if ($request->filled('leave_type_id') && is_numeric($request->leave_type_id)) {
+            $query->where('leave_type_id', (int) $request->leave_type_id);
         }
 
-        $leaveRequests = $query->paginate(20);
+        // Department filter
+        if ($request->filled('department_id') && is_numeric($request->department_id)) {
+            $query->whereHas('employee', function ($q) use ($request) {
+                $q->where('department_id', (int) $request->department_id);
+            });
+        }
+
+        // Entry type filter: regular requests vs historical entries
+        // (recorded via the Historical Leaves screen or CSV import).
+        if ($request->filled('entry_type') && in_array($request->entry_type, ['regular', 'historical'], true)) {
+            $query->where('is_historical', $request->entry_type === 'historical');
+        }
+
+        // Leave-date range (overlaps the requested window)
+        if ($request->filled('from_date') && strtotime($request->from_date)) {
+            $query->whereDate('end_date', '>=', date('Y-m-d', strtotime($request->from_date)));
+        }
+        if ($request->filled('to_date') && strtotime($request->to_date)) {
+            $query->whereDate('start_date', '<=', date('Y-m-d', strtotime($request->to_date)));
+        }
+
+        $leaveRequests = $query->paginate(20)->withQueryString();
+
+        // Leave-clarity: live breakdown per request on this page, computed
+        // from the CURRENT weekend settings + holidays (not the frozen
+        // stored total). The modal compares the two and flags any drift.
+        $calculationService = app(LeaveCalculationService::class);
+        $breakdowns = [];
+        foreach ($leaveRequests as $leave) {
+            $breakdowns[$leave->id] = $calculationService->calculateWorkingDaysBreakdown(
+                Carbon::parse($leave->start_date),
+                Carbon::parse($leave->end_date)
+            );
+        }
 
         // Get statistics counts
         $stats = [
             'total' => LeaveRequest::count(),
             'pending' => LeaveRequest::where('status', 'pending')->count(),
             'hr_approved' => LeaveRequest::where('status', 'hr_approved')->count(),
-            'manager_approved' => LeaveRequest::where('status', 'manager_approved')->count(),
             'approved' => LeaveRequest::where('status', 'approved')->count(),
             'rejected' => LeaveRequest::where('status', 'rejected')->count(),
         ];
 
-        // Get all leave types for filter dropdown
+        // Get all leave types + departments for filter dropdowns
         $leaveTypes = LeaveType::orderBy('name')->get();
+        $departments = Department::orderBy('name')->get();
 
-        return view('leaves.index', compact('leaveRequests', 'stats', 'leaveTypes'));
+        return view('leaves.index', compact('leaveRequests', 'stats', 'leaveTypes', 'departments', 'breakdowns'));
     }
 
     /**
@@ -136,10 +174,41 @@ class LeaveController extends Controller
             abort(403, 'Employee profile not found.');
         }
 
-        $leaveRequests = LeaveRequest::where('employee_id', $employee->id)
-            ->with('leaveType')
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
+        $leavesQuery = LeaveRequest::where('employee_id', $employee->id)
+            ->with('leaveType');
+
+        // Search by leave type name or reason
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $leavesQuery->where(function ($q) use ($search) {
+                $q->whereHas('leaveType', function ($q2) use ($search) {
+                    $q2->where('name', 'like', "%{$search}%");
+                })->orWhere('reason', 'like', "%{$search}%");
+            });
+        }
+
+        // Status filter (whitelisted values only)
+        if ($request->filled('status') && in_array($request->status, ['pending', 'hr_approved', 'manager_approved', 'approved', 'rejected', 'cancelled'], true)) {
+            $leavesQuery->where('status', $request->status);
+        }
+
+        // Leave type filter
+        if ($request->filled('leave_type_id') && is_numeric($request->leave_type_id)) {
+            $leavesQuery->where('leave_type_id', (int) $request->leave_type_id);
+        }
+
+        // Year + leave-date range filters
+        if ($request->filled('year') && is_numeric($request->year)) {
+            $leavesQuery->whereYear('start_date', (int) $request->year);
+        }
+        if ($request->filled('from_date') && strtotime($request->from_date)) {
+            $leavesQuery->whereDate('end_date', '>=', date('Y-m-d', strtotime($request->from_date)));
+        }
+        if ($request->filled('to_date') && strtotime($request->to_date)) {
+            $leavesQuery->whereDate('start_date', '<=', date('Y-m-d', strtotime($request->to_date)));
+        }
+
+        $leaveRequests = $leavesQuery->orderBy('created_at', 'desc')->paginate(20)->withQueryString();
 
         $leaveTypes = LeaveType::where('is_active', true)->get();
         $currentYear = Carbon::now()->year;
@@ -150,21 +219,11 @@ class LeaveController extends Controller
         $yearlyData = $analysis['years'] ?? [];
         $currentYearData = $yearlyData[$currentYear] ?? null;
 
-        // Build leaveBalances collection dynamically for view compatibility
-        $leaveBalances = collect();
-        foreach ($yearlyData as $year => $data) {
-            $leaveBalances->push((object) [
-                'year' => $year,
-                'entitled_days' => $data['days_entitled'] ?? 0,
-                'used_days' => $data['days_used'] ?? 0,
-                'ticket_count' => $data['ticket_count'] ?? 0,
-                'exit_reentry_count' => $data['exit_reentry_count'] ?? 0,
-                'balance' => $data['balance'] ?? 0,
-            ]);
-        }
-
         // Visible balance for the form's balance check (current-year
         // entitlement excluded until 1 January of the next year).
+        // Merge-time fix: $visibleBalance was referenced below but never
+        // defined in this method (unlike create()) — define it here.
+        $visibleBalance = $calculationService->visibleBalanceData($employee);
         $annualBalance = (object) [
             'year' => $currentYear,
             'entitled_days' => $visibleBalance['visible_entitled'],
@@ -181,18 +240,30 @@ class LeaveController extends Controller
         // Get yearly summary with carried balances (from calculation engine)
         $yearlySummary = $this->getYearlyLeaveSummary($employee);
 
+        // Leave-clarity: same live breakdowns as index(), plus the
+        // approved-annual requests behind each year's Used figure.
+        $breakdowns = [];
+        foreach ($leaveRequests as $leave) {
+            $breakdowns[$leave->id] = $calculationService->calculateWorkingDaysBreakdown(
+                Carbon::parse($leave->start_date),
+                Carbon::parse($leave->end_date)
+            );
+        }
+        $yearRequests = $calculationService->approvedAnnualRequestsByYear($employee);
+
         $showForm = $request->query('open_form', false);
 
         return view('leaves.my-leaves', compact(
             'leaveRequests',
             'employee',
             'leaveTypes',
-            'leaveBalances',
             'annualBalance',
             'visibleBalance',
             'holidays',
             'showForm',
-            'yearlySummary'
+            'yearlySummary',
+            'breakdowns',
+            'yearRequests'
         ));
     }
 
@@ -275,8 +346,12 @@ class LeaveController extends Controller
         }
 
         $request->validate([
-            'leave_type_id' => 'required|exists:leave_types,id',
-            'start_date' => 'required|date',
+            // WF-18: self-service only. The HTML min=today is client-side
+            // only, so past dates are rejected server-side here, and the
+            // leave type must exist AND be active. HR paths
+            // (storeForEmployee/storeHistorical) are exempt by design.
+            'leave_type_id' => ['required', Rule::exists('leave_types', 'id')->where('is_active', true)],
+            'start_date' => 'required|date|after_or_equal:today',
             'end_date' => 'required|date|after_or_equal:start_date',
             'reason' => 'required|string|max:2000',
             'flight_ticket_required' => 'nullable|boolean',
@@ -285,25 +360,47 @@ class LeaveController extends Controller
             'transfer_required' => 'nullable|boolean',
         ], [
             'leave_type_id.required' => 'Leave type is required.',
+            'leave_type_id.exists' => 'Selected leave type is not available.',
             'start_date.required' => 'Start date is required.',
+            'start_date.after_or_equal' => 'Start date cannot be in the past.',
             'end_date.required' => 'End date is required.',
             'end_date.after_or_equal' => 'End date must be after or equal to start date.',
             'reason.required' => 'Reason is required.',
         ]);
 
         $leaveType = LeaveType::findOrFail($request->leave_type_id);
-        $currentYear = Carbon::now()->year;
+
+        $startDate = Carbon::parse($request->start_date);
+        $endDate = Carbon::parse($request->end_date);
+
+        // WF-19: bound the day-by-day working-days loop below. Ranges over
+        // 366 calendar days are rejected before any calculation runs.
+        $calendarDays = $startDate->diffInDays($endDate) + 1;
+        if ($calendarDays > 366) {
+            return back()->with('error', 'Leave range must not exceed 366 days.')->withInput();
+        }
+
+        // WF-04/M2: reject overlaps with any existing approved, hr_approved
+        // or pending leave of the same employee (hr_approved is included
+        // because it is on its way to approved; rejected/cancelled rows and
+        // soft-deleted rows do not conflict).
+        if ($conflict = $this->findOverlappingLeave($employee->id, $request->start_date, $request->end_date)) {
+            return back()->with('error', $this->overlapMessage($conflict))->withInput();
+        }
 
         // Calculate working days using the service
         $calculationService = app(LeaveCalculationService::class);
         $workingDays = $calculationService->calculateWorkingDays(
-            Carbon::parse($request->start_date),
-            Carbon::parse($request->end_date),
+            $startDate,
+            $endDate,
             $employee->id
         );
 
-        // Calculate calendar days
-        $calendarDays = Carbon::parse($request->start_date)->diffInDays(Carbon::parse($request->end_date)) + 1;
+        // WF-19: a range covering only weekends/holidays computes 0 working
+        // days — reject it instead of storing a meaningless 0-day record.
+        if ($workingDays <= 0) {
+            return back()->with('error', 'The selected dates contain no working days (weekends/holidays only). Please choose different dates.')->withInput();
+        }
 
         // Visible-balance policy: NO balance gate here by design. The
         // current year's annual entitlement is not counted until 1 January
@@ -320,14 +417,19 @@ class LeaveController extends Controller
             'total_days' => $workingDays,
             'calendar_days' => $calendarDays,
             'reason' => $request->reason,
+            // M6: all four service-request flags are persisted (hotel and
+            // transfer were previously validated but dropped here).
             'flight_ticket_required' => $request->boolean('flight_ticket_required', false),
             'exit_reentry_required' => $request->boolean('exit_reentry_required', false),
+            'hotel_booking_required' => $request->boolean('hotel_booking_required', false),
+            'transfer_required' => $request->boolean('transfer_required', false),
             'status' => 'pending',
             'created_by' => Auth::id(),
         ]);
 
-        // Email notification (no-op until HR_NOTIFICATIONS_ENABLED=true)
-        app(\App\Services\LeaveNotificationService::class)->notifyNewRequest($leaveRequest);
+        // Email notification (no-op until HR_NOTIFICATIONS_ENABLED=true).
+        // WF-14: send failures are logged, never allowed to 500 the transition.
+        $this->notifySafely(fn () => app(\App\Services\LeaveNotificationService::class)->notifyNewRequest($leaveRequest));
 
         // Log activity
         ActivityLog::create([
@@ -413,6 +515,8 @@ class LeaveController extends Controller
             $q->whereHas('user', function ($q2) use ($search) {
                 $q2->where('name', 'like', "%{$search}%");
             })->orWhere('employee_number', 'like', "%{$search}%");
+        })->when($request->filled('department_id') && is_numeric($request->department_id), function ($q) use ($request) {
+            $q->where('department_id', (int) $request->department_id);
         })->orderBy('employee_number')->get();
 
         $filterYear = $request->filled('year') ? $request->year : null;
@@ -455,12 +559,13 @@ class LeaveController extends Controller
             $balances->count(),
             $perPage,
             $page,
-            ['path' => $request->url(), 'page' => 'page']
+            ['path' => $request->url(), 'page' => 'page', 'query' => $request->query()]
         );
 
         $years = LeaveYear::orderBy('year', 'asc')->pluck('year');
+        $departments = Department::where('is_active', true)->orderBy('name')->get();
 
-        return view('leaves.manage-balances', compact('balances', 'years'));
+        return view('leaves.manage-balances', compact('balances', 'years', 'departments'));
     }
 
     /**
@@ -528,43 +633,153 @@ class LeaveController extends Controller
     }
 
     /**
-     * Delete a leave request (only pending)
+     * Delete a leave request (any status, any employee).
+     * Restricted to super_admin and hr_manager by route middleware AND the
+     * role check below. This is a SOFT delete (LeaveRequest uses SoftDeletes):
+     * the row leaves all lists and dynamic balances recalculate automatically,
+     * but the record remains recoverable in the database.
+     * (Taken verbatim from the staged hr-leave-delete version in the merge.)
      */
-    public function destroy(LeaveRequest $leave)
+    /**
+     * Leave-clarity (Task 1): HR/admin edit form for a leave REQUEST.
+     * This is not editBalance (which edits balance rows): it edits the
+     * request itself — dates, type, reason. employee_id and status are
+     * deliberately NOT editable here: ownership never changes, and status
+     * changes stay in the approve/reject flow.
+     */
+    public function edit(LeaveRequest $leave)
     {
         if (!Auth::user()->hasAnyRole(['super_admin', 'hr_manager'])) {
             abort(403);
         }
 
-        if ($leave->status !== 'pending') {
-            return back()->with('error', 'Cannot delete approved leave requests.');
+        $leave->load(['employee.user', 'leaveType']);
+        $leaveTypes = LeaveType::where('is_active', true)->orderBy('name')->get();
+        $holidays = Holiday::orderBy('start_date')->get();
+        $weekendDays = \App\Models\WeekendSetting::getWeekendDays();
+        $breakdown = app(LeaveCalculationService::class)->calculateWorkingDaysBreakdown(
+            Carbon::parse($leave->start_date),
+            Carbon::parse($leave->end_date)
+        );
+
+        return view('leaves.edit', compact('leave', 'leaveTypes', 'holidays', 'weekendDays', 'breakdown'));
+    }
+
+    /**
+     * Leave-clarity (Task 1): apply the HR/admin request edit. Days are
+     * recomputed from the CURRENT weekend settings + holidays, exactly
+     * like storeLeave. Any status may be edited; because balances are
+     * computed dynamically from requests, editing an approved request
+     * corrects that employee's balance automatically — no manual
+     * adjustment, and no status/employee change is accepted here.
+     */
+    public function update(Request $request, LeaveRequest $leave)
+    {
+        if (!Auth::user()->hasAnyRole(['super_admin', 'hr_manager'])) {
+            abort(403);
         }
 
+        $request->validate([
+            'leave_type_id' => ['required', Rule::exists('leave_types', 'id')->where('is_active', true)],
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after_or_equal:start_date',
+            'reason' => 'required|string|max:2000',
+        ]);
+
+        $startDate = Carbon::parse($request->start_date);
+        $endDate = Carbon::parse($request->end_date);
+        $calendarDays = $startDate->diffInDays($endDate) + 1;
+        if ($calendarDays > 366) {
+            return back()->with('error', 'Leave range must not exceed 366 days.')->withInput();
+        }
+
+        // Same overlap rule as creation, excluding this request itself.
+        $conflict = LeaveRequest::with('leaveType')
+            ->where('employee_id', $leave->employee_id)
+            ->where('id', '!=', $leave->id)
+            ->whereIn('status', ['pending', 'hr_approved', 'approved'])
+            ->where('start_date', '<=', $request->end_date)
+            ->where('end_date', '>=', $request->start_date)
+            ->orderBy('start_date')
+            ->first();
+        if ($conflict) {
+            return back()->with('error', $this->overlapMessage($conflict))->withInput();
+        }
+
+        $calculationService = app(LeaveCalculationService::class);
+        $workingDays = $calculationService->calculateWorkingDays($startDate, $endDate, $leave->employee_id);
+        if ($workingDays <= 0) {
+            return back()->with('error', 'The selected dates contain no working days (weekends/holidays only). Please choose different dates.')->withInput();
+        }
+
+        $oldType = $leave->leaveType->name ?? 'N/A';
+        $oldStart = $leave->start_date ? $leave->start_date->format('Y-m-d') : 'N/A';
+        $oldEnd = $leave->end_date ? $leave->end_date->format('Y-m-d') : 'N/A';
+        $oldDays = $leave->total_days;
+        $employeeName = $leave->employee->user->name ?? 'Unknown';
+
+        $leave->update([
+            'leave_type_id' => $request->leave_type_id,
+            'start_date' => $request->start_date,
+            'end_date' => $request->end_date,
+            'total_days' => $workingDays,
+            'calendar_days' => $calendarDays,
+            'reason' => $request->reason,
+        ]);
+
+        $newType = LeaveType::find($request->leave_type_id)->name ?? 'N/A';
+        ActivityLog::create([
+            'user_id' => Auth::id(),
+            'action' => 'update',
+            'model_type' => LeaveRequest::class,
+            'model_id' => $leave->id,
+            'description' => "Leave request edited (employee: {$employeeName}, was: {$oldType} {$oldStart} to {$oldEnd}, {$oldDays} days; now: {$newType} {$request->start_date} to {$request->end_date}, {$workingDays} days; status unchanged: {$leave->status})",
+            'ip_address' => $request->ip(),
+        ]);
+
+        return redirect()->route('leaves.index')
+            ->with('success', "Leave request for {$employeeName} updated ({$workingDays} working days). Balances recalculate automatically.");
+    }
+
+    public function destroy(Request $request, LeaveRequest $leave)
+    {
+        if (!Auth::user()->hasAnyRole(['super_admin', 'hr_manager'])) {
+            abort(403);
+        }
+
+        // Capture details BEFORE deleting, for the audit trail.
+        $employeeName = $leave->employee->user->name ?? 'Unknown';
+        $employeeNumber = $leave->employee->employee_number ?? 'N/A';
+        $leaveTypeName = $leave->leaveType->name ?? 'N/A';
+        $startDate = $leave->start_date ? $leave->start_date->format('Y-m-d') : 'N/A';
+        $endDate = $leave->end_date ? $leave->end_date->format('Y-m-d') : 'N/A';
+        $totalDays = $leave->total_days;
+        $oldStatus = $leave->status;
+        $wasHistorical = $leave->is_historical ? 'yes' : 'no';
+
+        // Log activity (same pattern as hrApprove)
+        ActivityLog::create([
+            'user_id' => Auth::id(),
+            'action' => 'delete',
+            'model_type' => LeaveRequest::class,
+            'model_id' => $leave->id,
+            'description' => "Leave request deleted (employee: {$employeeName} [{$employeeNumber}], type: {$leaveTypeName}, dates: {$startDate} to {$endDate}, days: {$totalDays}, was status: {$oldStatus}, historical: {$wasHistorical})",
+            'ip_address' => $request->ip(),
+        ]);
+
         // No manual balance adjustment needed - balances are calculated dynamically from leave requests.
-        // Deleting a pending leave request only affects future dynamic calculations.
+        // Deleting a request only affects future dynamic calculations.
 
         $leave->delete();
 
         return redirect()->route('leaves.index')
-            ->with('success', 'Leave request deleted.');
+            ->with('success', "Leave request for {$employeeName} deleted.");
     }
 
-    /**
-     * Export leave reports
-     */
-    public function export(Request $request)
-    {
-        if (!Auth::user()->hasAnyRole(['super_admin', 'hr_manager'])) {
-            abort(403);
-        }
-
-        $format = $request->get('format', 'csv');
-        $reportType = $request->get('type', 'balance');
-
-        // Use ReportsController for exports
-        $reportsController = new \App\Http\Controllers\ReportsController();
-        return $reportsController->export($request);
-    }
+    // NOTE (WF-17): the former export() method was REMOVED here. It delegated
+    // to ReportsController::export(), which does not exist, so wiring it to
+    // any route would 500. It is deleted, not rewired; use the Reports
+    // exports (reports.export.*) instead. No route referenced it.
 
     // ========================================
     // HR Methods - Create leave for any employee
@@ -587,7 +802,14 @@ class LeaveController extends Controller
 
      /**
      * Get employee data for AJAX request
-     * Uses LeaveCalculationService for dynamic balance calculation
+     * WF-10 (LeaveController part only): returns the VISIBLE balance figure
+     * from visibleBalanceData() — current-year entitlement excluded until
+     * 1 January of the next year — instead of analyze(), whose current-year
+     * balance counted that entitlement. Reports/Dashboard surfaces are
+     * another worker's scope and are untouched here. JSON key names are
+     * unchanged; ticket/exit-reentry counts are dropped from
+     * current_balance because visible rows do not carry them (they were
+     * analyze()-only data).
      */
     public function getEmployeeData(Employee $employee)
      {
@@ -598,22 +820,17 @@ class LeaveController extends Controller
         $currentYear = Carbon::now()->year;
         $calculationService = app(\App\Services\LeaveCalculationService::class);
 
-        // Get all leave analysis for this employee using the calculation engine
-        $analysis = $calculationService->analyze($employee);
+        // Visible-balance policy only: closed years' entitlements minus all
+        // approved annual used days; current-year entitlement is null
+        // (hidden) until 1 January of the next year; negatives shown as-is.
+        $visible = $calculationService->visibleBalanceData($employee);
+        $visibleRows = collect($visible['rows'] ?? [])->keyBy('year');
 
-        // Build yearly summary from dynamically calculated data
-        $yearlyData = $analysis['years'] ?? [];
+        $currentYearRow = $visibleRows[$currentYear] ?? null;
+        $previousYearRow = $visibleRows[$currentYear - 1] ?? null;
 
-        // Get current year data
-        $currentYearData = $yearlyData[$currentYear] ?? null;
-
-        // Get previous year data for carry-forward reference
-        $previousYear = $currentYear - 1;
-        $previousYearData = $yearlyData[$previousYear] ?? null;
-
-        // Calculate available balance from current year balance
-        // The service calculates balance as: PreviousBalance + Entitlement - Used
-        $availableBalance = $currentYearData ? $currentYearData['balance'] : 0;
+        // The single visible figure the HR create form previews.
+        $availableBalance = $visible['visible_balance'] ?? 0;
 
         // Get recent leave requests (all types for display)
         $recentLeaves = LeaveRequest::where('employee_id', $employee->id)
@@ -626,30 +843,30 @@ class LeaveController extends Controller
             'employee' => [
                 'id' => $employee->id,
                 'employee_number' => $employee->employee_number,
-                'name' => $employee->user->name,
+                'name' => $employee->user->name ?? 'Unknown',
                 'department' => $employee->department->name ?? 'No Department',
-                'joining_date' => $employee->joining_date->format('Y-m-d'),
+                'joining_date' => $employee->joining_date ? $employee->joining_date->format('Y-m-d') : null,
                 'employment_status' => $employee->employment_status,
             ],
-            'current_balance' => $currentYearData ? [
-                'entitled_days' => $currentYearData['days_entitled'],
-                'used_days' => $currentYearData['days_used'],
-                'balance' => $currentYearData['balance'],
-                'ticket_count' => $currentYearData['ticket_count'] ?? 0,
-                'exit_reentry_count' => $currentYearData['exit_reentry_count'] ?? 0,
+            'current_balance' => $currentYearRow ? [
+                // entitled_days is null for the current year by policy
+                // (hidden until 1 January of the next year).
+                'entitled_days' => $currentYearRow['entitled'],
+                'used_days' => $currentYearRow['used'],
+                'balance' => $currentYearRow['remaining'],
             ] : null,
-            'previous_balance' => $previousYearData ? [
-                'balance' => $previousYearData['balance'],
-                'entitled_days' => $previousYearData['days_entitled'],
-                'used_days' => $previousYearData['days_used'],
+            'previous_balance' => $previousYearRow ? [
+                'balance' => $previousYearRow['remaining'],
+                'entitled_days' => $previousYearRow['entitled'],
+                'used_days' => $previousYearRow['used'],
             ] : null,
             'available_balance' => $availableBalance,
-            'balances' => collect($yearlyData)->map(function($data) {
+            'balances' => $visibleRows->map(function ($row) {
                 return [
-                    'year' => $data['year'],
-                    'entitled_days' => $data['days_entitled'],
-                    'used_days' => $data['days_used'],
-                    'balance' => $data['balance'],
+                    'year' => $row['year'],
+                    'entitled_days' => $row['entitled'],
+                    'used_days' => $row['used'],
+                    'balance' => $row['remaining'],
                 ];
             })->values()->toArray(),
             'recent_leaves' => $recentLeaves->map(function($leave) {
@@ -686,16 +903,34 @@ class LeaveController extends Controller
 
         $employee = Employee::findOrFail($request->employee_id);
         $leaveType = LeaveType::findOrFail($request->leave_type_id);
-        $currentYear = Carbon::now()->year;
+
+        $startDate = Carbon::parse($request->start_date);
+        $endDate = Carbon::parse($request->end_date);
+
+        // WF-19: bound the day-by-day working-days loop below.
+        $calendarDays = $startDate->diffInDays($endDate) + 1;
+        if ($calendarDays > 366) {
+            return back()->with('error', 'Leave range must not exceed 366 days.')->withInput();
+        }
+
+        // WF-04/M2: HR-created requests are stored as approved, so an
+        // overlap here would double-count immediately.
+        if ($conflict = $this->findOverlappingLeave($employee->id, $request->start_date, $request->end_date)) {
+            return back()->with('error', $this->overlapMessage($conflict))->withInput();
+        }
 
         // Calculate working days using service
         $workingDays = app(LeaveCalculationService::class)->calculateWorkingDays(
-            Carbon::parse($request->start_date),
-            Carbon::parse($request->end_date),
+            $startDate,
+            $endDate,
             $employee->id
         );
 
-        $calendarDays = Carbon::parse($request->start_date)->diffInDays(Carbon::parse($request->end_date)) + 1;
+        // WF-19: reject weekend/holiday-only ranges instead of storing a
+        // 0-day record.
+        if ($workingDays <= 0) {
+            return back()->with('error', 'The selected dates contain no working days (weekends/holidays only). Please choose different dates.')->withInput();
+        }
 
         // Visible-balance policy: NO balance gate here by design. The
         // current year's annual entitlement is not counted until 1 January
@@ -712,8 +947,11 @@ class LeaveController extends Controller
             'total_days' => $workingDays,
             'calendar_days' => $calendarDays,
             'reason' => $request->reason,
+            // M6: all four service-request flags are persisted.
             'flight_ticket_required' => $request->boolean('flight_ticket_required', false),
             'exit_reentry_required' => $request->boolean('exit_reentry_required', false),
+            'hotel_booking_required' => $request->boolean('hotel_booking_required', false),
+            'transfer_required' => $request->boolean('transfer_required', false),
             'status' => 'approved',
             'hr_approved_by' => Auth::user()->employee?->id,
             'hr_approved_at' => now(),
@@ -736,6 +974,12 @@ class LeaveController extends Controller
 
     /**
      * HR approves leave request
+     * M10/WF-06: the transition is a CONDITIONAL update inside a DB
+     * transaction (UPDATE ... WHERE id = ? AND status = 'pending'). Two
+     * concurrent approvals cannot both succeed: the loser affects 0 rows
+     * and gets the "already processed" error. The pre-check below only
+     * produces the fast-path message; the conditional update is the
+     * correctness mechanism (no lockForUpdate-only solution).
      */
     public function hrApprove(Request $request, LeaveRequest $leave)
     {
@@ -748,14 +992,26 @@ class LeaveController extends Controller
         }
 
         $oldStatus = $leave->status;
-        $leave->status = 'hr_approved';
-        $leave->hr_approved_by = Auth::user()->employee?->id;
-        $leave->hr_approved_at = now();
-        $leave->hr_comments = $request->hr_comments ?? null;
-        $leave->save();
+        $affected = DB::transaction(function () use ($leave, $request) {
+            return LeaveRequest::where('id', $leave->id)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'hr_approved',
+                    'hr_approved_by' => Auth::user()->employee?->id,
+                    'hr_approved_at' => now(),
+                    'hr_comments' => $request->hr_comments ?? null,
+                ]);
+        });
 
-        // Email notification (no-op until enabled)
-        app(\App\Services\LeaveNotificationService::class)->notifyStatusChanged($leave);
+        if ($affected === 0) {
+            return back()->with('error', 'Leave request already processed.');
+        }
+
+        $leave->refresh();
+
+        // Email notification (no-op until enabled). WF-14: failures are
+        // logged, never allowed to 500 the transition.
+        $this->notifySafely(fn () => app(\App\Services\LeaveNotificationService::class)->notifyStatusChanged($leave));
 
         // Log activity
         ActivityLog::create([
@@ -772,6 +1028,10 @@ class LeaveController extends Controller
 
     /**
      * Manager approves leave request
+     * M1: manager/dm actors must belong to the leave employee's department
+     * (via their managedDepartment); super_admin/hr_manager are exempt.
+     * M10/WF-06: conditional update (WHERE status = 'hr_approved') inside a
+     * DB transaction, as in hrApprove().
      */
     public function managerApprove(Request $request, LeaveRequest $leave)
     {
@@ -779,19 +1039,33 @@ class LeaveController extends Controller
             abort(403, 'Unauthorized.');
         }
 
+        $this->assertManagerDepartmentScope($leave);
+
         if ($leave->status !== 'hr_approved') {
             return back()->with('error', 'Leave request must be HR approved first.');
         }
 
         $oldStatus = $leave->status;
-        $leave->status = 'approved';
-        $leave->manager_approved_by = Auth::user()->employee?->id;
-        $leave->manager_approved_at = now();
-        $leave->manager_comments = $request->manager_comments ?? null;
-        $leave->save();
+        $affected = DB::transaction(function () use ($leave, $request) {
+            return LeaveRequest::where('id', $leave->id)
+                ->where('status', 'hr_approved')
+                ->update([
+                    'status' => 'approved',
+                    'manager_approved_by' => Auth::user()->employee?->id,
+                    'manager_approved_at' => now(),
+                    'manager_comments' => $request->manager_comments ?? null,
+                ]);
+        });
 
-        // Email notification (no-op until enabled)
-        app(\App\Services\LeaveNotificationService::class)->notifyStatusChanged($leave);
+        if ($affected === 0) {
+            return back()->with('error', 'Leave request must be HR approved first.');
+        }
+
+        $leave->refresh();
+
+        // Email notification (no-op until enabled). WF-14: failures are
+        // logged, never allowed to 500 the transition.
+        $this->notifySafely(fn () => app(\App\Services\LeaveNotificationService::class)->notifyStatusChanged($leave));
 
         // Log activity
         ActivityLog::create([
@@ -808,6 +1082,13 @@ class LeaveController extends Controller
 
     /**
      * Reject leave request
+     * M1: manager/dm actors are department-scoped (see
+     * assertManagerDepartmentScope); super_admin/hr_manager are exempt.
+     * H7/WF-05: rejection is allowed ONLY from 'pending' or 'hr_approved' —
+     * NEVER from 'approved' (or 'cancelled'/'rejected'). An approved leave
+     * needs a dedicated reversal flow, not a reject. M10/WF-06: the
+     * transition is a conditional update inside a DB transaction, so a
+     * concurrent approval cannot be silently overwritten by a reject.
      */
     public function reject(Request $request, LeaveRequest $leave)
     {
@@ -815,18 +1096,37 @@ class LeaveController extends Controller
             abort(403, 'Unauthorized.');
         }
 
+        $this->assertManagerDepartmentScope($leave);
+
         $request->validate([
             'rejection_reason' => 'required|string|max:1000',
         ]);
 
-        $leave->status = 'rejected';
-        $leave->rejected_by = Auth::user()->employee?->id;
-        $leave->rejected_at = now();
-        $leave->rejection_reason = $request->rejection_reason;
-        $leave->save();
+        if (!in_array($leave->status, ['pending', 'hr_approved'], true)) {
+            return back()->with('error', 'Only pending or HR-approved requests can be rejected.');
+        }
 
-        // Email notification (no-op until enabled)
-        app(\App\Services\LeaveNotificationService::class)->notifyStatusChanged($leave);
+        $oldStatus = $leave->status;
+        $affected = DB::transaction(function () use ($leave, $request) {
+            return LeaveRequest::where('id', $leave->id)
+                ->whereIn('status', ['pending', 'hr_approved'])
+                ->update([
+                    'status' => 'rejected',
+                    'rejected_by' => Auth::user()->employee?->id,
+                    'rejected_at' => now(),
+                    'rejection_reason' => $request->rejection_reason,
+                ]);
+        });
+
+        if ($affected === 0) {
+            return back()->with('error', 'Leave request already processed.');
+        }
+
+        $leave->refresh();
+
+        // Email notification (no-op until enabled). WF-14: failures are
+        // logged, never allowed to 500 the transition.
+        $this->notifySafely(fn () => app(\App\Services\LeaveNotificationService::class)->notifyStatusChanged($leave));
 
         // No manual balance adjustment needed - balances are calculated dynamically.
         // Rejected leave requests are not counted in the calculation engine's
@@ -847,8 +1147,12 @@ class LeaveController extends Controller
 
     /**
      * Cancel pending leave request (by employee)
+     * Ownership + pending-status guards are unchanged (they are what the
+     * route patch relies on — see routes PATCH-NOTE). WF-13: the cancel
+     * is now written to the activity log before the delete, in the same
+     * pattern as hrApprove.
      */
-    public function cancel(LeaveRequest $leave)
+    public function cancel(Request $request, LeaveRequest $leave)
     {
         $employee = auth()->user()->employee;
         if (!$employee || $leave->employee_id !== $employee->id) {
@@ -861,6 +1165,20 @@ class LeaveController extends Controller
 
         // No manual balance adjustment needed - balances are calculated dynamically.
         // Deleting a pending leave request only affects future dynamic calculations.
+
+        // WF-13: audit-log the cancellation BEFORE deleting, so a cancelled
+        // request is distinguishable from "never existed" in the trail.
+        $leaveTypeName = $leave->leaveType->name ?? 'N/A';
+        $startDate = $leave->start_date ? $leave->start_date->format('Y-m-d') : 'N/A';
+        $endDate = $leave->end_date ? $leave->end_date->format('Y-m-d') : 'N/A';
+        ActivityLog::create([
+            'user_id' => Auth::id(),
+            'action' => 'delete',
+            'model_type' => LeaveRequest::class,
+            'model_id' => $leave->id,
+            'description' => "Leave request cancelled by employee (type: {$leaveTypeName}, dates: {$startDate} to {$endDate}, days: {$leave->total_days})",
+            'ip_address' => $request->ip(),
+        ]);
 
         $leave->delete();
 
@@ -884,20 +1202,46 @@ class LeaveController extends Controller
             'end_date' => 'required|date|after_or_equal:start_date',
             'reason' => 'required|string|max:2000',
             'status' => 'required|in:approved,rejected',
+            // M6: the flags were stored (partially) here without ever being
+            // validated on this path; validate all four as boolean.
+            'flight_ticket_required' => 'nullable|boolean',
+            'exit_reentry_required' => 'nullable|boolean',
+            'hotel_booking_required' => 'nullable|boolean',
+            'transfer_required' => 'nullable|boolean',
         ]);
 
         $employee = Employee::findOrFail($request->employee_id);
         $leaveType = LeaveType::findOrFail($request->leave_type_id);
-        $year = Carbon::parse($request->start_date)->year;
+
+        $startDate = Carbon::parse($request->start_date);
+        $endDate = Carbon::parse($request->end_date);
+
+        // WF-19: bound the day-by-day working-days loop below.
+        $calendarDays = $startDate->diffInDays($endDate) + 1;
+        if ($calendarDays > 366) {
+            return back()->with('error', 'Leave range must not exceed 366 days.')->withInput();
+        }
+
+        // WF-04/M2: only when the historical record will actually count
+        // (status approved). A rejected historical record deducts nothing,
+        // so it cannot double-count and is not blocked by overlaps.
+        if ($request->status === 'approved'
+            && ($conflict = $this->findOverlappingLeave($employee->id, $request->start_date, $request->end_date))) {
+            return back()->with('error', $this->overlapMessage($conflict))->withInput();
+        }
 
         // Calculate working days
         $workingDays = app(LeaveCalculationService::class)->calculateWorkingDays(
-            Carbon::parse($request->start_date),
-            Carbon::parse($request->end_date),
+            $startDate,
+            $endDate,
             $employee->id
         );
 
-        $calendarDays = Carbon::parse($request->start_date)->diffInDays(Carbon::parse($request->end_date)) + 1;
+        // WF-19: reject weekend/holiday-only ranges instead of storing a
+        // 0-day record.
+        if ($workingDays <= 0) {
+            return back()->with('error', 'The selected dates contain no working days (weekends/holidays only). Please choose different dates.')->withInput();
+        }
 
         // In dynamic calculation system, no LeaveBalance records are created.
         // Balance is calculated dynamically from leave requests (Hire Date + Requests).
@@ -912,8 +1256,11 @@ class LeaveController extends Controller
             'total_days' => $workingDays,
             'calendar_days' => $calendarDays,
             'reason' => $request->reason,
+            // M6: all four service-request flags are persisted.
             'flight_ticket_required' => $request->boolean('flight_ticket_required', false),
             'exit_reentry_required' => $request->boolean('exit_reentry_required', false),
+            'hotel_booking_required' => $request->boolean('hotel_booking_required', false),
+            'transfer_required' => $request->boolean('transfer_required', false),
             'status' => $request->status,
             'is_historical' => true,
             'created_by' => Auth::id(),
@@ -995,28 +1342,63 @@ class LeaveController extends Controller
             ->orderBy('created_at', 'desc');
 
         // Filter by department for manager/dm
+        // L4: a manager/dm whose employee record has no department must see
+        // NOTHING — scoping by a null department_id would otherwise match
+        // employees with department_id NULL.
         if (in_array($user->role->name ?? '', ['manager', 'dm'])) {
-            $query->whereHas('employee', function ($q) use ($employee) {
-                $q->where('department_id', $employee->department_id);
-            });
+            if (!$employee || !$employee->department_id) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereHas('employee', function ($q) use ($employee) {
+                    $q->where('department_id', $employee->department_id);
+                });
+            }
         }
 
-        // Search
+        // Search by employee name, employee number or reason
         if ($request->filled('search')) {
             $search = $request->search;
-            $query->whereHas('employee.user', function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%");
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('employee.user', function ($q2) use ($search) {
+                    $q2->where('name', 'like', "%{$search}%");
+                })->orWhereHas('employee', function ($q2) use ($search) {
+                    $q2->where('employee_number', 'like', "%{$search}%");
+                })->orWhere('reason', 'like', "%{$search}%");
             });
         }
 
-        // Status filter
-        if ($request->filled('status')) {
+        // Status filter (whitelisted values only)
+        if ($request->filled('status') && in_array($request->status, ['pending', 'hr_approved', 'manager_approved', 'approved', 'rejected', 'cancelled'], true)) {
             $query->where('status', $request->status);
         }
 
-        $leaveRequests = $query->paginate(20);
+        // Leave type filter
+        if ($request->filled('leave_type_id') && is_numeric($request->leave_type_id)) {
+            $query->where('leave_type_id', (int) $request->leave_type_id);
+        }
 
-        return view('leaves.manager-index', compact('leaveRequests'));
+        // Leave-date range
+        if ($request->filled('from_date') && strtotime($request->from_date)) {
+            $query->whereDate('end_date', '>=', date('Y-m-d', strtotime($request->from_date)));
+        }
+        if ($request->filled('to_date') && strtotime($request->to_date)) {
+            $query->whereDate('start_date', '<=', date('Y-m-d', strtotime($request->to_date)));
+        }
+
+        // Department filter: only super_admin/hr_manager may narrow by
+        // department here; manager/dm are already scoped to their own.
+        $showDepartmentFilter = in_array($user->role->name ?? '', ['super_admin', 'hr_manager']);
+        if ($showDepartmentFilter && $request->filled('department_id') && is_numeric($request->department_id)) {
+            $query->whereHas('employee', function ($q) use ($request) {
+                $q->where('department_id', (int) $request->department_id);
+            });
+        }
+
+        $leaveRequests = $query->paginate(20)->withQueryString();
+        $leaveTypes = LeaveType::orderBy('name')->get();
+        $departments = Department::orderBy('name')->get();
+
+        return view('leaves.manager-index', compact('leaveRequests', 'leaveTypes', 'departments', 'showDepartmentFilter'));
     }
 
     public function calendar(Request $request)
@@ -1034,17 +1416,43 @@ class LeaveController extends Controller
         $month = $start->format('Y-m');
         $end = $start->copy()->endOfMonth();
 
-        // Department scope: managers, dms and employees only see their own department
+        // Department scope: managers, dms and employees only see their own department.
+        // M5 (coordinator fix at merge): a scoped role must NEVER fall through
+        // to the request parameter — a manager/dm/employee with a null department
+        // previously could view ANY department's calendar via ?department_id=.
+        // Scoped roles with no department now match nothing (-1 sentinel);
+        // HR/super_admin stay unscoped and may still filter by the parameter.
         $scopedDeptId = null;
         if (in_array($role, ['manager', 'dm', 'employee']) && $employee) {
             $scopedDeptId = $employee->department_id;
         }
-        $filterDeptId = $scopedDeptId ?: ($request->filled('department_id') ? (int) $request->department_id : null);
+        if (in_array($role, ['manager', 'dm', 'employee'])) {
+            $filterDeptId = $scopedDeptId ?: -1;
+        } else {
+            $filterDeptId = $request->filled('department_id') ? (int) $request->department_id : null;
+        }
 
         $query = LeaveRequest::with(['employee.user', 'employee.department', 'leaveType'])
-            ->whereNotIn('status', ['rejected', 'cancelled'])
             ->whereDate('start_date', '<=', $end->toDateString())
             ->whereDate('end_date', '>=', $start->toDateString());
+
+        // Calendar filters (applied on top of the department scope above)
+        if ($request->filled('leave_type_id') && is_numeric($request->leave_type_id)) {
+            $query->where('leave_type_id', (int) $request->leave_type_id);
+        }
+        if ($request->filled('search')) {
+            $search = $request->search;
+            // L10: escape LIKE wildcards so a search term cannot act as a pattern.
+            $search = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search);
+            $query->whereHas('employee.user', function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%");
+            });
+        }
+        if ($request->filled('status') && in_array($request->status, ['pending', 'hr_approved', 'manager_approved', 'approved', 'rejected', 'cancelled'], true)) {
+            $query->where('status', $request->status);
+        } else {
+            $query->whereNotIn('status', ['rejected', 'cancelled']);
+        }
 
         if ($filterDeptId) {
             $query->whereHas('employee', fn($q) => $q->where('department_id', $filterDeptId));
@@ -1072,12 +1480,86 @@ class LeaveController extends Controller
             ->get();
 
         $departments = Department::orderBy('name')->get();
+        $leaveTypes = LeaveType::where('is_active', true)->orderBy('name')->get();
         $prevMonth = $start->copy()->subMonth()->format('Y-m');
         $nextMonth = $start->copy()->addMonth()->format('Y-m');
 
         return view('leaves.calendar', compact(
             'days', 'start', 'end', 'month', 'holidays', 'departments',
-            'filterDeptId', 'prevMonth', 'nextMonth', 'scopedDeptId'
+            'filterDeptId', 'prevMonth', 'nextMonth', 'scopedDeptId', 'leaveTypes'
         ));
+    }
+
+    // ========================================
+    // Leave-workflow fix helpers (WF/M-series)
+    // ========================================
+
+    /**
+     * M1: department-ownership gate for manager/dm actors on approve/reject.
+     * super_admin and hr_manager are exempt (company-wide). A manager/dm
+     * with no managed department, or acting on another department's leave,
+     * gets 403. The leave's employee must exist and belong to the actor's
+     * managed department.
+     */
+    private function assertManagerDepartmentScope(LeaveRequest $leave): void
+    {
+        $user = Auth::user();
+        if ($user->hasAnyRole(['super_admin', 'hr_manager'])) {
+            return;
+        }
+
+        $managedDepartment = $user->managedDepartment ?? null;
+        $employee = $leave->employee;
+        if (!$managedDepartment || !$employee || (int) $employee->department_id !== (int) $managedDepartment->id) {
+            abort(403, 'Unauthorized.');
+        }
+    }
+
+    /**
+     * WF-04/M2: first existing leave of this employee whose date range
+     * overlaps [start_date, end_date] and whose status can still count
+     * (pending, hr_approved, approved). Overlap = new.start <= existing.end
+     * AND new.end >= existing.start. Rejected/cancelled rows never conflict;
+     * soft-deleted rows are excluded by the default scope.
+     */
+    private function findOverlappingLeave(int $employeeId, string $startDate, string $endDate): ?LeaveRequest
+    {
+        return LeaveRequest::with('leaveType')
+            ->where('employee_id', $employeeId)
+            ->whereIn('status', ['pending', 'hr_approved', 'approved'])
+            ->where('start_date', '<=', $endDate)
+            ->where('end_date', '>=', $startDate)
+            ->orderBy('start_date')
+            ->first();
+    }
+
+    /**
+     * WF-04/M2: the overlap error message. It names the conflicting leave
+     * (type, dates, status) so the user can see exactly what collides.
+     */
+    private function overlapMessage(LeaveRequest $conflict): string
+    {
+        $type = $conflict->leaveType->name ?? 'Leave';
+        $start = Carbon::parse($conflict->start_date)->format('Y-m-d');
+        $end = Carbon::parse($conflict->end_date)->format('Y-m-d');
+        return "These dates overlap an existing leave request: {$type} from {$start} to {$end} ({$conflict->status}). Please choose different dates.";
+    }
+
+    /**
+     * WF-14 (controller side): run a notification send so a failure is
+     * logged and never 500s the leave transition. The
+     * LeaveNotificationService itself also catches failures; this is the
+     * second layer. Making the notification classes themselves ShouldQueue
+     * is a separate, still-open edit — their source files were not in the
+     * staged material (see MERGE-AND-CHANGES.md). HR_NOTIFICATIONS_ENABLED
+     * is deliberately NOT changed here.
+     */
+    private function notifySafely(callable $notify): void
+    {
+        try {
+            $notify();
+        } catch (\Throwable $e) {
+            Log::warning('Leave notification failed: ' . $e->getMessage());
+        }
     }
 }

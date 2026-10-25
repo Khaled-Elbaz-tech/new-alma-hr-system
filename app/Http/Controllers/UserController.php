@@ -26,12 +26,16 @@ class UserController extends Controller
             $query->where('is_active', $request->is_active);
         }
         
-        if ($request->has('search') && $request->search) {
-            $query->where('name', 'like', "%{$request->search}%")
-                  ->orWhere('email', 'like', "%{$request->search}%");
+        if ($request->filled('search')) {
+            // Grouped so the search never escapes the role/status filters.
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%");
+            });
         }
-        
-        $users = $query->orderBy('created_at', 'desc')->paginate(20);
+
+        $users = $query->orderBy('created_at', 'desc')->paginate(20)->withQueryString();
         $roles = Role::all();
         
         return view('users.index', compact('users', 'roles'));
@@ -49,7 +53,7 @@ class UserController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
-            'password' => 'required|min:8',
+            'password' => 'required|string|min:8|confirmed',
             'role_id' => 'required|exists:roles,id',
             'is_active' => 'boolean',
         ]);
@@ -82,7 +86,7 @@ class UserController extends Controller
             'action' => 'create',
             'model_type' => User::class,
             'model_id' => $user->id,
-            'new_values' => $request->except('password'),
+            'new_values' => $request->except(['password', 'password_confirmation']),
             'ip_address' => $request->ip(),
         ]);
 
@@ -110,10 +114,26 @@ class UserController extends Controller
             'email' => 'required|email|unique:users,email,' . $user->id,
             'role_id' => 'required|exists:roles,id',
             'is_active' => 'boolean',
+            // L1: same min:8 + confirmation policy as creation (no stricter rule invented).
+            'password' => 'nullable|string|min:8|confirmed',
         ]);
 
         if ($validator->fails()) {
             return back()->withErrors($validator)->withInput();
+        }
+
+        // H4: last-super-admin protection + no self role-change / self-deactivation.
+        if ($user->id === auth()->id() && (int) $request->role_id !== (int) $user->role_id) {
+            return back()->with('error', 'You cannot change your own role.')->withInput();
+        }
+        if ($user->id === auth()->id() && $request->has('is_active') && !(bool) $request->is_active) {
+            return back()->with('error', 'You cannot deactivate your own account.')->withInput();
+        }
+        if ($user->isSuperAdmin()
+            && ((int) $request->role_id !== (int) $user->role_id
+                || ($request->has('is_active') && !(bool) $request->is_active))
+            && $this->activeSuperAdminCount() <= 1) {
+            return back()->with('error', 'Cannot demote or deactivate the last remaining super admin.')->withInput();
         }
 
         $oldValues = $user->toArray();
@@ -138,7 +158,7 @@ class UserController extends Controller
             'model_type' => User::class,
             'model_id' => $user->id,
             'old_values' => $oldValues,
-            'new_values' => $request->except('password'),
+            'new_values' => $request->except(['password', 'password_confirmation']),
             'ip_address' => $request->ip(),
         ]);
 
@@ -150,6 +170,11 @@ class UserController extends Controller
         // Cannot delete self
         if ($user->id === auth()->id()) {
             return back()->with('error', 'You cannot delete your own account');
+        }
+
+        // H4: destroy() deactivates the user, so it must not remove the last super admin.
+        if ($user->isSuperAdmin() && $this->activeSuperAdminCount() <= 1) {
+            return back()->with('error', 'Cannot deactivate the last remaining super admin.');
         }
 
         $user->update(['is_active' => false]);
@@ -178,5 +203,14 @@ class UserController extends Controller
         ]);
 
         return back()->with('success', 'User activated successfully');
+    }
+    /**
+     * Number of currently active super_admin users (H4 guard).
+     */
+    private function activeSuperAdminCount(): int
+    {
+        return User::whereHas('role', function ($query) {
+            $query->where('name', 'super_admin');
+        })->where('is_active', true)->count();
     }
 }

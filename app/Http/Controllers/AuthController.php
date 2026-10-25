@@ -6,6 +6,7 @@ use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 use App\Models\User;
 
 class AuthController extends Controller
@@ -24,15 +25,11 @@ class AuthController extends Controller
 
         $user = User::where('email', $request->email)->first();
 
-        if (!$user) {
-            return back()->with('error', 'Invalid credentials');
-        }
-
-        if (!$user->is_active) {
-            return back()->with('error', 'Your account has been deactivated. Please contact the administrator.');
-        }
-
-        if (!Hash::check($request->password, $user->password)) {
+        // M12: one uniform message for every failure case — unknown user, wrong
+        // password, and deactivated account are indistinguishable, so login
+        // responses cannot be used to enumerate accounts or account states.
+        // (Short-circuiting keeps Hash::check from running on a null user.)
+        if (!$user || !$user->is_active || !Hash::check($request->password, $user->password)) {
             return back()->with('error', 'Invalid credentials');
         }
 
@@ -50,6 +47,14 @@ class AuthController extends Controller
             'ip_address' => $request->ip(),
             'user_agent' => $request->userAgent(),
         ]);
+
+        // H8: imported accounts must set a new password before continuing.
+        // (Route name corrected from the patch note: the form route is
+        // 'password.change', not 'change-password'.)
+        if (!empty($user->must_change_password)) {
+            return redirect()->route('password.change')
+                ->with('info', 'Your account was created by import. Please set a new password before continuing.');
+        }
 
         return redirect()->route('dashboard');
     }
@@ -93,7 +98,32 @@ class AuthController extends Controller
 
         $user->update([
             'password' => Hash::make($request->new_password),
+            'must_change_password' => false,   // H8: clear the import flag
         ]);
+
+        // M7: a password change must invalidate every OTHER session for this user.
+        // logoutOtherDevices() handles drivers that support it (it needs the
+        // AuthenticateSession middleware to take effect); the database-driver
+        // purge below works regardless of that middleware, because this app's
+        // default session driver is 'database' (config/session.php). Both are
+        // attempted, and a failure of either must not roll back the password
+        // change itself. The current session is logged out just below, as before.
+        try {
+            Auth::logoutOtherDevices($request->new_password);
+        } catch (\Throwable $e) {
+            // Fall through to the explicit session-row purge.
+        }
+        if (config('session.driver') === 'database') {
+            try {
+                DB::table(config('session.table', 'sessions'))
+                    ->where('user_id', $user->id)
+                    ->where('id', '!=', $request->session()->getId())
+                    ->delete();
+            } catch (\Throwable $e) {
+                // Sessions table without a user_id column (non-default schema):
+                // logoutOtherDevices() above remains the invalidation path.
+            }
+        }
 
         ActivityLog::create([
             'user_id' => $user->id,
