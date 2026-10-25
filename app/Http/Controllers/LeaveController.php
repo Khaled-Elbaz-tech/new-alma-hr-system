@@ -423,19 +423,24 @@ class LeaveController extends Controller
             $yearlyData = $analysis['years'] ?? [];
             $currentYear = Carbon::now()->year;
 
+            // Visible-balance policy: current-year entitlement hidden until 1 January.
+            $visibleRows = collect($calculationService->visibleBalanceData($employee)['rows'])->keyBy('year');
+
             foreach ($yearlyData as $year => $data) {
                 if ($filterYear !== null && $year != $filterYear) continue;
+
+                $vRow = $visibleRows[$year] ?? null;
 
                 $balances->push((object) [
                     'id' => null, // No DB record in dynamic system
                     'employee_id' => $employee->id,
                     'employee' => $employee,
                     'year' => $year,
-                    'entitled_days' => $data['days_entitled'] ?? 0,
+                    'entitled_days' => $vRow ? $vRow['entitled'] : ($data['days_entitled'] ?? 0),
                     'used_days' => $data['days_used'] ?? 0,
                     'ticket_count' => $data['ticket_count'] ?? 0,
                     'exit_reentry_count' => $data['exit_reentry_count'] ?? 0,
-                    'balance' => $data['balance'] ?? 0,
+                    'balance' => $vRow ? $vRow['remaining'] : ($data['balance'] ?? 0),
                     'months_from_hiring' => $data['months_from_hiring'] ?? 0,
                 ]);
             }
@@ -476,16 +481,21 @@ class LeaveController extends Controller
 
         $leaveYears = LeaveYear::orderBy('year', 'asc')->get();
 
-        // Build balance data for view
+        // Build balance data for view (VISIBLE semantics: current-year
+        // entitlement hidden until 1 January of the next year).
+        $visibleBalance = $calculationService->visibleBalanceData($employee);
+        $visibleRows = collect($visibleBalance['rows'])->keyBy('year');
+
         $balancesByYear = [];
         foreach ($yearlyData as $year => $data) {
+            $vRow = $visibleRows[$year] ?? null;
             $balancesByYear[$year] = (object) [
                 'year' => $year,
-                'entitled_days' => $data['days_entitled'] ?? 0,
+                'entitled_days' => $vRow ? $vRow['entitled'] : ($data['days_entitled'] ?? 0),
                 'used_days' => $data['days_used'] ?? 0,
                 'ticket_count' => $data['ticket_count'] ?? 0,
                 'exit_reentry_count' => $data['exit_reentry_count'] ?? 0,
-                'balance' => $data['balance'] ?? 0,
+                'balance' => $vRow ? $vRow['remaining'] : ($data['balance'] ?? 0),
                 'months_from_hiring' => $data['months_from_hiring'] ?? 0,
             ];
         }
@@ -500,7 +510,7 @@ class LeaveController extends Controller
 
         $monthsWorked = $balance->months_from_hiring ?? 0;
 
-        return view('leaves.edit-balance', compact('balance', 'leaveYears', 'monthsWorked', 'employee', 'balancesByYear'));
+        return view('leaves.edit-balance', compact('balance', 'leaveYears', 'monthsWorked', 'employee', 'balancesByYear', 'visibleBalance'));
     }
 
     /**

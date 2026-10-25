@@ -299,20 +299,30 @@ class EmployeeController extends Controller
         $analysis = $leaveCalculationService->analyze($employee);
         $yearlyData = $analysis['years'] ?? [];
         
+        // Visible-balance policy: history rows use VISIBLE semantics —
+        // the current year's entitlement is hidden (null) and counts as 0
+        // until 1 January of the next year.
+        $visibleBalance = $leaveCalculationService->visibleBalanceData($employee);
+        $visibleRows = collect($visibleBalance['rows'])->keyBy('year');
+
         $vacationHistory = [];
         foreach ($yearlyData as $year => $data) {
+            $vRow = $visibleRows[$year] ?? null;
+            $entitled = $vRow ? $vRow['entitled'] : ($data['days_entitled'] ?? 0);
+            $used = $data['days_used'] ?? 0;
+            $running = $vRow ? $vRow['remaining'] : ($data['balance'] ?? 0);
             $vacationHistory[] = [
                 'year' => $year,
-                'entitled_days' => $data['days_entitled'] ?? 0,
-                'used_days' => $data['days_used'] ?? 0,
-                'carry_forward' => ($data['balance'] - ($data['days_entitled'] ?? 0) + ($data['days_used'] ?? 0)),
-                'balance' => $data['balance'] ?? 0,
+                'entitled_days' => $entitled,
+                'used_days' => $used,
+                'carry_forward' => ($running - ($entitled ?? 0) + $used),
+                'balance' => $running,
                 'ticket_count' => $data['ticket_count'] ?? 0,
                 'exit_reentry_count' => $data['exit_reentry_count'] ?? 0,
             ];
         }
         
-        return view('employees.team-show', compact('employee', 'vacationHistory'));
+        return view('employees.team-show', compact('employee', 'vacationHistory', 'visibleBalance'));
     }
 
     // Employee - view own profile
@@ -336,20 +346,30 @@ class EmployeeController extends Controller
         $analysis = $leaveCalculationService->analyze($employee);
         $yearlyData = $analysis['years'] ?? [];
         
+        // Visible-balance policy: history rows use VISIBLE semantics —
+        // the current year's entitlement is hidden (null) and counts as 0
+        // until 1 January of the next year.
+        $visibleBalance = $leaveCalculationService->visibleBalanceData($employee);
+        $visibleRows = collect($visibleBalance['rows'])->keyBy('year');
+
         $vacationHistory = [];
         foreach ($yearlyData as $year => $data) {
+            $vRow = $visibleRows[$year] ?? null;
+            $entitled = $vRow ? $vRow['entitled'] : ($data['days_entitled'] ?? 0);
+            $used = $data['days_used'] ?? 0;
+            $running = $vRow ? $vRow['remaining'] : ($data['balance'] ?? 0);
             $vacationHistory[] = [
                 'year' => $year,
-                'entitled_days' => $data['days_entitled'] ?? 0,
-                'used_days' => $data['days_used'] ?? 0,
-                'carry_forward' => ($data['balance'] - ($data['days_entitled'] ?? 0) + ($data['days_used'] ?? 0)),
-                'balance' => $data['balance'] ?? 0,
+                'entitled_days' => $entitled,
+                'used_days' => $used,
+                'carry_forward' => ($running - ($entitled ?? 0) + $used),
+                'balance' => $running,
                 'ticket_count' => $data['ticket_count'] ?? 0,
                 'exit_reentry_count' => $data['exit_reentry_count'] ?? 0,
             ];
         }
         
-        return view('employees.my-profile', compact('employee', 'fields', 'vacationHistory'));
+        return view('employees.my-profile', compact('employee', 'fields', 'vacationHistory', 'visibleBalance'));
     }
     
     // Employee Documents - HR/Super Admin view to access employee custom fields
