@@ -11,7 +11,7 @@
             <div class="col-md-4">
                 <div class="card mb-3">
                     <div class="card-header">
-                        <h6 class="mb-0"><i class="fas fa-wallet"></i> Current Leave Balance ({{ date('Y') }})</h6>
+                        <h6 class="mb-0"><i class="fas fa-wallet"></i> Available Leave Balance</h6>
                     </div>
                     <div class="card-body">
                         @if($leaveBalances->count() > 0)
@@ -142,10 +142,10 @@
                         </div>
                         <hr>
                         <div id="balanceCheck">
-                            <p class="mb-1"><strong>Current Balance:</strong> <span id="currentBalance">0</span> days</p>
+                            <p class="mb-1"><strong>Visible Balance:</strong> <span id="currentBalance">0</span> days</p>
                             <p class="mb-1"><strong>After Approval:</strong> <span id="remainingBalance">0</span> days</p>
-                            <div class="alert alert-danger mt-2 mb-0" id="insufficientBalance" style="display: none;">
-                                <i class="fas fa-exclamation-triangle"></i> Insufficient leave balance!
+                            <div class="alert alert-warning mt-2 mb-0" id="insufficientBalance" style="display: none;">
+                                <i class="fas fa-exclamation-triangle"></i> Note: this request exceeds the visible balance. It can still be submitted and approved — the balance will go negative.
                             </div>
                         </div>
                     </div>
@@ -295,14 +295,12 @@ document.addEventListener('DOMContentLoaded', function() {
              document.getElementById('currentBalance').textContent = currentBalance;
              document.getElementById('remainingBalance').textContent = currentBalance - workingDays;
             
+            // Visible-balance policy: a request may take the balance negative.
+            // Show a warning only — never block submission.
             if (workingDays > currentBalance) {
                 document.getElementById('insufficientBalance').style.display = 'block';
-                submitBtn.disabled = true;
-                submitBtn.title = 'Insufficient leave balance';
             } else {
                 document.getElementById('insufficientBalance').style.display = 'none';
-                submitBtn.disabled = false;
-                submitBtn.title = '';
             }
             document.getElementById('balanceCheck').style.display = 'block';
         } else {

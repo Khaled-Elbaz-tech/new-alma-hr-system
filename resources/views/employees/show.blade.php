@@ -191,6 +191,49 @@
 
     <!-- Leave Summary Tab -->
     <div class="tab-pane fade" id="leave-summary">
+@if(isset($visibleBalance))
+    <div class="card mb-3 border-primary">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-wallet"></i> Available Balance</h5>
+        </div>
+        <div class="card-body">
+            <h2 class="{{ ($visibleBalance['visible_balance'] ?? 0) < 0 ? 'text-danger' : 'text-success' }} mb-1">
+                {{ number_format($visibleBalance['visible_balance'] ?? 0, 2) }} days
+            </h2>
+            <p class="text-muted">
+                This balance counts <strong>closed years only</strong>. The current year's ({{ $visibleBalance['current_year'] }}) annual entitlement is not counted yet — it opens automatically on <strong>{{ $visibleBalance['opens_on'] }}</strong>. Leave approved during the current year deducts from this balance, even if it goes negative.
+            </p>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Year</th>
+                            <th>Entitled</th>
+                            <th>Used</th>
+                            <th>Remaining</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($visibleBalance['rows'] as $row)
+                            <tr @if($row['is_current']) class="table-light" @endif>
+                                <td><strong>{{ $row['year'] }}</strong></td>
+                                <td>{{ $row['entitled'] === null ? '—' : number_format($row['entitled'], 2) }}</td>
+                                <td>{{ number_format($row['used'], 2) }}</td>
+                                <td class="{{ $row['remaining'] < 0 ? 'text-danger' : 'text-success' }}">
+                                    <strong>{{ number_format($row['remaining'], 2) }}</strong>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-muted small mb-0 mt-2">
+                <i class="fas fa-info-circle"></i>
+                {{ $visibleBalance['current_year'] }} entitlement opens on {{ $visibleBalance['opens_on'] }}.
+            </p>
+        </div>
+    </div>
+@endif
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-calendar-check"></i> Leave Balance (Yearly View)</h5>
@@ -211,7 +254,7 @@
                                 @foreach($vacationHistory as $balance)
                                     <tr>
                                         <td>{{ $balance['year'] }}</td>
-                                        <td>{{ $balance['entitled_days'] }}</td>
+                                        <td>{{ $balance['entitled_days'] === null ? '—' : $balance['entitled_days'] }}</td>
                                         <td>{{ $balance['used_days'] }}</td>
                                         <td class="{{ $balance['balance'] > 0 ? 'text-success' : 'text-danger' }}">
                                             <strong>{{ $balance['balance'] }}</strong>
@@ -307,7 +350,7 @@
                                     @endphp
                                     <tr>
                                         <td>{{ $yearData['year'] }}</td>
-                                        <td>{{ $yearData['entitled_days'] }}</td>
+                                        <td>{{ $yearData['entitled_days'] === null ? '—' : $yearData['entitled_days'] }}</td>
                                         <td>{{ $yearData['used_days'] }}</td>
                                         <td class="{{ $carryForward > 0 ? 'text-success' : 'text-muted' }}">
                                             {{ $carryForward > 0 ? $carryForward : '-' }}

@@ -63,13 +63,13 @@
                         </div>
                         <div class="col-md-3">
                             <div id="balanceCheck">
-                                <p class="mb-1"><strong>Current Balance:</strong> <span id="currentBalance">0</span> days</p>
+                                <p class="mb-1"><strong>Visible Balance:</strong> <span id="currentBalance">0</span> days</p>
                                 <p class="mb-1"><strong>After Approval:</strong> <span id="remainingBalance">0</span> days</p>
                             </div>
                         </div>
                         <div class="col-md-3">
-                            <div class="alert alert-danger mt-0" id="insufficientBalance" style="display: none;">
-                                <i class="fas fa-exclamation-triangle"></i> Insufficient balance!
+                            <div class="alert alert-warning mt-0" id="insufficientBalance" style="display: none;">
+                                <i class="fas fa-exclamation-triangle"></i> Note: this request exceeds the visible balance. It can still be submitted and approved — the balance will go negative.
                             </div>
                         </div>
                     </div>
@@ -201,6 +201,50 @@
     </div>
 </div>
 
+@if(isset($visibleBalance))
+    <div class="card mb-3 border-primary">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-wallet"></i> Available Balance</h5>
+        </div>
+        <div class="card-body">
+            <h2 class="{{ ($visibleBalance['visible_balance'] ?? 0) < 0 ? 'text-danger' : 'text-success' }} mb-1">
+                {{ number_format($visibleBalance['visible_balance'] ?? 0, 2) }} days
+            </h2>
+            <p class="text-muted">
+                This balance counts <strong>closed years only</strong>. The current year's ({{ $visibleBalance['current_year'] }}) annual entitlement is not counted yet — it opens automatically on <strong>{{ $visibleBalance['opens_on'] }}</strong>. Leave approved during the current year deducts from this balance, even if it goes negative.
+            </p>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Year</th>
+                            <th>Entitled</th>
+                            <th>Used</th>
+                            <th>Remaining</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($visibleBalance['rows'] as $row)
+                            <tr @if($row['is_current']) class="table-light" @endif>
+                                <td><strong>{{ $row['year'] }}</strong></td>
+                                <td>{{ $row['entitled'] === null ? '—' : number_format($row['entitled'], 2) }}</td>
+                                <td>{{ number_format($row['used'], 2) }}</td>
+                                <td class="{{ $row['remaining'] < 0 ? 'text-danger' : 'text-success' }}">
+                                    <strong>{{ number_format($row['remaining'], 2) }}</strong>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-muted small mb-0 mt-2">
+                <i class="fas fa-info-circle"></i>
+                {{ $visibleBalance['current_year'] }} entitlement opens on {{ $visibleBalance['opens_on'] }}.
+            </p>
+        </div>
+    </div>
+@endif
+
 <!-- Yearly Leave Summary -->
 <div class="card">
     <div class="card-header">
@@ -225,7 +269,7 @@
                         <tr>
                             <td><strong>{{ $yearData['year'] }}</strong></td>
                             <td>{{ $yearData['months_worked'] }}</td>
-                            <td>{{ number_format($yearData['days_entitled'], 2) }}</td>
+                            <td>{{ $yearData['days_entitled'] === null ? '—' : number_format($yearData['days_entitled'], 2) }}</td>
                             <td>{{ number_format($yearData['days_used'], 2) }}</td>
                             <td>
                                 <strong class="{{ $yearData['balance'] >= 0 ? 'text-success' : 'text-danger' }}">
@@ -248,6 +292,7 @@
             Annual leave entitlement is prorated: 1.75 days per month worked. 
             Unused balance carries forward (can be negative). 
             Non-annual leave types (sick, business, etc.) do not affect annual balance.
+            The current year's entitlement is not counted until 1 January of the next year — the Available Balance above counts closed years only.
         </p>
     </div>
 </div>
@@ -336,12 +381,12 @@ document.addEventListener('DOMContentLoaded', function() {
              document.getElementById('currentBalance').textContent = currentBalance;
              document.getElementById('remainingBalance').textContent = currentBalance - workingDays;
             
+            // Visible-balance policy: a request may take the balance negative.
+            // Show a warning only — never block submission.
             if (workingDays > currentBalance) {
                 document.getElementById('insufficientBalance').style.display = 'block';
-                submitBtn.disabled = true;
             } else {
                 document.getElementById('insufficientBalance').style.display = 'none';
-                submitBtn.disabled = false;
             }
             document.getElementById('balanceCheck').style.display = 'block';
         } else {
