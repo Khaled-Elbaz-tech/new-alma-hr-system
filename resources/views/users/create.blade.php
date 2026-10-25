@@ -37,6 +37,13 @@
                             <div class="text-danger">{{ $message }}</div>
                         @enderror
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label">Confirm Password <span class="text-danger">*</span></label>
+                        <input type="password" name="password_confirmation" class="form-control" required minlength="8">
+                        @error('password_confirmation')
+                            <div class="text-danger">{{ $message }}</div>
+                        @enderror
+                    </div>
                     
                     <div class="mb-3">
                         <label class="form-label">Role <span class="text-danger">*</span></label>

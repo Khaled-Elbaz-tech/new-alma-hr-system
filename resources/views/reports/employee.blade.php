@@ -40,6 +40,10 @@
                     <option value="on_leave" {{ $status == 'on_leave' ? 'selected' : '' }}>On Leave</option>
                 </select>
             </div>
+            <div class="col-md-3">
+                <label class="form-label">Search</label>
+                <input type="text" name="search" class="form-control" placeholder="Search by name, number or email" value="{{ request('search') }}">
+            </div>
             <div class="col-md-3 d-flex align-items-end">
                 <button type="submit" class="btn btn-secondary">Filter</button>
                 <a href="{{ route('reports.employee') }}" class="btn btn-outline-secondary ms-2">Reset</a>
@@ -133,7 +137,7 @@
                                 @foreach($yearByYearBalances as $data)
                                 <tr>
                                     <td><strong>{{ $data['year'] }}</strong></td>
-                                    <td>{{ $data['entitled'] }}</td>
+                                    <td>{{ $data['entitled'] ?? '—' }}</td>
                                     <td>{{ $data['used'] }}</td>
                                     <td>
                                         <strong class="{{ $data['balance'] > 0 ? 'text-success' : 'text-danger' }}">

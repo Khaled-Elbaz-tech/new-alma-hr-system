@@ -138,8 +138,10 @@
                             <div class="col-md-6">
                                 <p class="mb-1"><strong>Weekends Excluded:</strong> <span id="weekendsExcluded">0</span></p>
                                 <p class="mb-1"><strong>Holidays Excluded:</strong> <span id="holidaysExcluded">0</span></p>
+                                <p class="mb-1"><strong>Holiday names:</strong> <span id="holidayNames">&mdash;</span></p>
                             </div>
                         </div>
+                        <p class="mb-0 mt-2" id="breakdownLine"></p>
                         <hr>
                         <div id="balanceCheck">
                             <p class="mb-1"><strong>Visible Balance:</strong> <span id="currentBalance">0</span> days</p>
@@ -214,6 +216,12 @@
 </div>
 
 @section('scripts')
+@php
+    $weekendDays = \App\Models\WeekendSetting::getWeekendDays();
+    $dayMap = ['sunday'=>0,'monday'=>1,'tuesday'=>2,'wednesday'=>3,'thursday'=>4,'friday'=>5,'saturday'=>6];
+    $weekendNums = array_values(array_filter(array_map(fn($d) => $dayMap[strtolower($d)] ?? null, $weekendDays)));
+    if (empty($weekendNums)) { $weekendNums = [5, 6]; }
+@endphp
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const startDate = document.getElementById('startDate');
@@ -225,6 +233,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Annual leave balance (single value)
     const annualBalance = @json($annualBalance ? $annualBalance->balance : 0);
     const holidays = @json($holidays->toArray());
+    const weekendDays = @json($weekendNums);
     
     function calculateDays() {
         if (!startDate.value || !endDate.value || !leaveTypeSelect.value) {
@@ -250,7 +259,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         while (current <= end) {
             const dayOfWeek = current.getDay();
-            if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Not Sunday (0) or Saturday (6)
+            if (!weekendDays.includes(dayOfWeek)) {
                 workingDays++;
             } else {
                 weekendsExcluded++;
@@ -260,15 +269,20 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Holidays excluded
         let holidaysExcluded = 0;
+        const holidayNames = new Set();
         holidays.forEach(holiday => {
             const holidayStart = new Date(holiday.start_date);
-            const holidayEnd = new Date(holiday.end_date);
+            // A holiday with no end_date is a single day (same fix as the
+            // server-side breakdown); new Date(null) would be 1970 and
+            // would silently exclude nothing.
+            const holidayEnd = holiday.end_date ? new Date(holiday.end_date) : holidayStart;
             current = new Date(start);
             while (current <= end) {
                 if (current >= holidayStart && current <= holidayEnd) {
                     const dayOfWeek = current.getDay();
-                    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                    if (!weekendDays.includes(dayOfWeek)) {
                         holidaysExcluded++;
+                        holidayNames.add(holiday.name);
                     }
                 }
                 current.setDate(current.getDate() + 1);
@@ -283,6 +297,8 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('workingDays').textContent = workingDays;
         document.getElementById('weekendsExcluded').textContent = weekendsExcluded;
         document.getElementById('holidaysExcluded').textContent = holidaysExcluded;
+        document.getElementById('holidayNames').textContent = holidayNames.size > 0 ? Array.from(holidayNames).join(', ') : '—';
+        document.getElementById('breakdownLine').textContent = calendarDays + ' calendar days \u2212 ' + weekendsExcluded + ' weekend days \u2212 ' + holidaysExcluded + ' holiday days = ' + workingDays + ' working days';
         calculationResult.style.display = 'block';
         
         // Check balance for deductible leaves

@@ -23,13 +23,26 @@
 <div class="card">
     <div class="card-header">
         <form method="GET" class="row g-3">
+            <div class="col-md-3">
+                <input type="text" name="search" class="form-control" placeholder="Search by employee name, number or reason" value="{{ request('search') }}">
+            </div>
+            <div class="col-md-2">
+                <select name="department_id" class="form-select">
+                    <option value="">All Departments</option>
+                    @foreach($departments as $dept)
+                        <option value="{{ $dept->id }}" {{ request('department_id') == $dept->id ? 'selected' : '' }}>{{ $dept->name }}</option>
+                    @endforeach
+                </select>
+            </div>
             <div class="col-md-2">
                 <select name="status" class="form-select">
                     <option value="">All Status</option>
                     <option value="pending" {{ request('status') == 'pending' ? 'selected' : '' }}>Pending</option>
                     <option value="hr_approved" {{ request('status') == 'hr_approved' ? 'selected' : '' }}>HR Approved</option>
+                    <option value="manager_approved" {{ request('status') == 'manager_approved' ? 'selected' : '' }}>Manager Approved</option>
                     <option value="approved" {{ request('status') == 'approved' ? 'selected' : '' }}>Approved</option>
                     <option value="rejected" {{ request('status') == 'rejected' ? 'selected' : '' }}>Rejected</option>
+                    <option value="cancelled" {{ request('status') == 'cancelled' ? 'selected' : '' }}>Cancelled</option>
                 </select>
             </div>
             <div class="col-md-2">
@@ -41,6 +54,19 @@
                 </select>
             </div>
             <div class="col-md-2">
+                <select name="entry_type" class="form-select">
+                    <option value="">All Entries</option>
+                    <option value="regular" {{ request('entry_type') == 'regular' ? 'selected' : '' }}>Regular</option>
+                    <option value="historical" {{ request('entry_type') == 'historical' ? 'selected' : '' }}>Historical</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <div class="input-group">
+                    <input type="date" name="from_date" class="form-control" value="{{ request('from_date') }}" title="Leave from date">
+                    <input type="date" name="to_date" class="form-control" value="{{ request('to_date') }}" title="Leave to date">
+                </div>
+            </div>
+            <div class="col-md-12">
                 <button type="submit" class="btn btn-secondary">Filter</button>
                 <a href="{{ route('leaves.index') }}" class="btn btn-outline-secondary">Reset</a>
             </div>
@@ -88,6 +114,9 @@
                                     @else {{ ucfirst($leave->status) }}
                                     @endif
                                 </span>
+                                @if($leave->is_historical)
+                                    <span class="badge bg-secondary ms-1">Historical</span>
+                                @endif
                             </td>
                             <td>
                                 <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#viewModal{{ $leave->id }}">
@@ -126,6 +155,19 @@
                                     <i class="fas fa-times"></i>
                                 </button>
                                 @endif
+
+                                @if(auth()->user()->isHrManager() || auth()->user()->isSuperAdmin())
+                                <a href="{{ route('leaves.edit', $leave) }}" class="btn btn-sm btn-warning" title="Edit request">
+                                    <i class="fas fa-pencil-alt"></i>
+                                </a>
+                                <form action="{{ route('leaves.destroy', $leave) }}" method="POST" class="d-inline" onsubmit="return confirm('Delete this leave request for {{ addslashes($leave->employee->user->name) }} ({{ $leave->total_days }} days, status: {{ $leave->status }})? It will be removed from all lists and balances will recalculate.')">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                                @endif
                             </td>
                         </tr>
                         
@@ -148,6 +190,20 @@
                                                 <p><strong>Leave Type:</strong> {{ $leave->leaveType->name }}</p>
                                                 <p><strong>Calendar Days:</strong> {{ $leave->calendar_days }}</p>
                                                 <p><strong>Working Days:</strong> {{ $leave->total_days }}</p>
+                                                @php $bd = $breakdowns[$leave->id] ?? null; @endphp
+                                                @if($bd)
+                                                <hr>
+                                                <p class="mb-1"><strong>How the days are counted (live):</strong></p>
+                                                <p class="mb-1">{{ $bd['calendar_days'] }} calendar days &minus; {{ $bd['weekend_days'] }} weekend days ({{ implode(', ', $bd['weekend_day_names']) }}) &minus; {{ $bd['holiday_days'] }} holiday days = <strong>{{ $bd['working_days'] }} working days</strong></p>
+                                                @if(count($bd['holidays']) > 0)
+                                                <p class="mb-1 small text-muted">Holidays excluded: @foreach($bd['holidays'] as $h){{ $h['date'] }} ({{ $h['name'] }})@if(!$loop->last), @endif @endforeach</p>
+                                                @endif
+                                                @if((float) $bd['working_days'] !== (float) $leave->total_days)
+                                                <div class="alert alert-warning py-2 px-3 mb-0">
+                                                    <small><strong>Note:</strong> this live count ({{ $bd['working_days'] }} days) differs from the days stored when the request was created ({{ $leave->total_days }} days). Weekends or holidays changed after creation — the stored figure is what counts until an HR/admin edit or a holiday recalculation updates it.</small>
+                                                </div>
+                                                @endif
+                                                @endif
                                             </div>
                                         </div>
                                         <hr>

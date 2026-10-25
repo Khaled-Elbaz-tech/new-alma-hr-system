@@ -116,6 +116,54 @@
     </div>
 </div>
 
+<!-- Leave History Filters -->
+<div class="card mb-4">
+    <div class="card-header">
+        <form method="GET" class="row g-3">
+            <div class="col-md-3">
+                <input type="text" name="search" class="form-control" placeholder="Search by leave type or reason" value="{{ request('search') }}">
+            </div>
+            <div class="col-md-2">
+                <select name="status" class="form-select">
+                    <option value="">All Statuses</option>
+                    <option value="pending" {{ request('status') == 'pending' ? 'selected' : '' }}>Pending</option>
+                    <option value="hr_approved" {{ request('status') == 'hr_approved' ? 'selected' : '' }}>HR Approved</option>
+                    <option value="manager_approved" {{ request('status') == 'manager_approved' ? 'selected' : '' }}>Manager Approved</option>
+                    <option value="approved" {{ request('status') == 'approved' ? 'selected' : '' }}>Approved</option>
+                    <option value="rejected" {{ request('status') == 'rejected' ? 'selected' : '' }}>Rejected</option>
+                    <option value="cancelled" {{ request('status') == 'cancelled' ? 'selected' : '' }}>Cancelled</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select name="leave_type_id" class="form-select">
+                    <option value="">All Types</option>
+                    @foreach($leaveTypes as $type)
+                        <option value="{{ $type->id }}" {{ request('leave_type_id') == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select name="year" class="form-select">
+                    <option value="">All Years</option>
+                    @for($y = date('Y'); $y >= date('Y') - 5; $y--)
+                        <option value="{{ $y }}" {{ request('year') == $y ? 'selected' : '' }}>{{ $y }}</option>
+                    @endfor
+                </select>
+            </div>
+            <div class="col-md-3">
+                <div class="input-group">
+                    <input type="date" name="from_date" class="form-control" value="{{ request('from_date') }}" title="Leave from date">
+                    <input type="date" name="to_date" class="form-control" value="{{ request('to_date') }}" title="Leave to date">
+                </div>
+            </div>
+            <div class="col-md-12">
+                <button type="submit" class="btn btn-secondary">Filter</button>
+                <a href="{{ route('leaves.my') }}" class="btn btn-outline-secondary">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Leave History Table -->
 <div class="card mb-4">
     <div class="card-header">
@@ -172,6 +220,20 @@
                                                 <p><strong>Start Date:</strong> {{ $leave->start_date->format('d M Y') }}</p>
                                                 <p><strong>End Date:</strong> {{ $leave->end_date->format('d M Y') }}</p>
                                                 <p><strong>Working Days:</strong> {{ $leave->total_days }}</p>
+                                                @php $bd = $breakdowns[$leave->id] ?? null; @endphp
+                                                @if($bd)
+                                                <hr>
+                                                <p class="mb-1"><strong>How the days are counted (live):</strong></p>
+                                                <p class="mb-1">{{ $bd['calendar_days'] }} calendar days &minus; {{ $bd['weekend_days'] }} weekend days ({{ implode(', ', $bd['weekend_day_names']) }}) &minus; {{ $bd['holiday_days'] }} holiday days = <strong>{{ $bd['working_days'] }} working days</strong></p>
+                                                @if(count($bd['holidays']) > 0)
+                                                <p class="mb-1 small text-muted">Holidays excluded: @foreach($bd['holidays'] as $h){{ $h['date'] }} ({{ $h['name'] }})@if(!$loop->last), @endif @endforeach</p>
+                                                @endif
+                                                @if((float) $bd['working_days'] !== (float) $leave->total_days)
+                                                <div class="alert alert-warning py-2 px-3 mb-0">
+                                                    <small><strong>Note:</strong> this live count ({{ $bd['working_days'] }} days) differs from the days stored when the request was created ({{ $leave->total_days }} days). Weekends or holidays changed after creation — the stored figure is what counts until an HR/admin edit or a holiday recalculation updates it.</small>
+                                                </div>
+                                                @endif
+                                                @endif
                                                 <p><strong>Calendar Days:</strong> {{ $leave->calendar_days }}</p>
                                                 <p><strong>Status:</strong> {{ ucfirst($leave->status) }}</p>
                                                 @if($leave->reason)
@@ -228,7 +290,19 @@
                             <tr @if($row['is_current']) class="table-light" @endif>
                                 <td><strong>{{ $row['year'] }}</strong></td>
                                 <td>{{ $row['entitled'] === null ? '—' : number_format($row['entitled'], 2) }}</td>
-                                <td>{{ number_format($row['used'], 2) }}</td>
+                                <td>{{ number_format($row['used'], 2) }}
+                                @if(!empty($yearRequests[$row['year']] ?? []))
+                                <details class="mt-1">
+                                    <summary class="small text-muted" style="cursor:pointer;">Show {{ count($yearRequests[$row['year']]) }} approved annual request(s)</summary>
+                                    <ul class="small mb-0 ps-3">
+                                        @foreach($yearRequests[$row['year']] as $yr)
+                                        <li>{{ $yr->start_date->format('d M Y') }} &ndash; {{ $yr->end_date->format('d M Y') }}: {{ $yr->total_days }} days</li>
+                                        @endforeach
+                                    </ul>
+                                    <small class="text-muted">Total: {{ number_format(collect($yearRequests[$row['year']])->sum('total_days'), 2) }} days &mdash; this is the Used figure above.</small>
+                                </details>
+                                @endif
+                            </td>
                                 <td class="{{ $row['remaining'] < 0 ? 'text-danger' : 'text-success' }}">
                                     <strong>{{ number_format($row['remaining'], 2) }}</strong>
                                 </td>
@@ -241,6 +315,17 @@
                 <i class="fas fa-info-circle"></i>
                 {{ $visibleBalance['current_year'] }} entitlement opens on {{ $visibleBalance['opens_on'] }}.
             </p>
+            <div class="alert alert-info mt-3 mb-0">
+    <strong>How this is calculated:</strong> Only <strong>annual</strong> leave counts here.
+    Each year's "Used" is the sum of the <strong>approved annual requests that start in that year</strong>
+    (click "Show requests" on a Used figure to see them).
+    The visible balance = <strong>entitlements of closed years only</strong> minus
+    <strong>approved annual days used in all years, including the current year</strong>.
+    The current year's entitlement is hidden until <strong>1 January of the next year</strong>, when it
+    opens automatically — there is no manual rollover.
+    A negative balance is shown as-is and is never blocked or floored at zero.
+    Other leave types (sick, business, etc.) never change this number.
+</div>
         </div>
     </div>
 @endif

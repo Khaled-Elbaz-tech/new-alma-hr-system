@@ -26,8 +26,22 @@
                     @endfor
                 </select>
             </div>
+            <div class="col-md-2">
+                <label class="form-label">Department</label>
+                <select name="department_id" class="form-select">
+                    <option value="">All Departments</option>
+                    @foreach($departments as $dept)
+                        <option value="{{ $dept->id }}" {{ request('department_id') == $dept->id ? 'selected' : '' }}>{{ $dept->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Search</label>
+                <input type="text" name="search" class="form-control" placeholder="Search by name or employee number" value="{{ request('search') }}">
+            </div>
             <div class="col-md-2 d-flex align-items-end">
                 <button type="submit" class="btn btn-secondary">Filter</button>
+                <a href="{{ route('reports.leave-balance') }}" class="btn btn-outline-secondary ms-2">Reset</a>
             </div>
             <div class="col-md-5 text-end d-flex align-items-end justify-content-end gap-2">
                 @if($employeeId && $selectedEmployee)
@@ -71,7 +85,7 @@
                     <tr class="{{ $data['year'] == $year ? 'table-primary' : '' }}">
                         <td><strong>{{ $data['year'] }}</strong></td>
                         <td>{{ $data['months_from_hiring'] }}</td>
-                        <td>{{ $data['entitled_days'] }}</td>
+                        <td>{{ $data['entitled_days'] ?? '—' }}</td>
                         <td>{{ $data['used_days'] }}</td>
                         <td>{{ $data['exit_reentry_count'] }}</td>
                         <td>{{ $data['ticket_count'] }}</td>
@@ -118,7 +132,7 @@
                             </td>
                             <td>{{ $item['employee']->employee_number }}</td>
                             <td>{{ $item['employee']->department->name ?? 'N/A' }}</td>
-                            <td>{{ $item['entitled_days'] }}</td>
+                            <td>{{ $item['entitled_days'] ?? '—' }}</td>
                             <td>{{ $item['used_days'] }}</td>
                             <td>
                                 <strong class="{{ $item['balance'] > 0 ? 'text-success' : 'text-danger' }}">

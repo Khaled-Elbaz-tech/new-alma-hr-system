@@ -21,9 +21,35 @@
                         <option value="pending" {{ request('status') == 'pending' ? 'selected' : '' }}>Pending</option>
                         <option value="hr_approved" {{ request('status') == 'hr_approved' ? 'selected' : '' }}>HR Approved</option>
                         <option value="approved" {{ request('status') == 'approved' ? 'selected' : '' }}>Approved</option>
+                        <option value="manager_approved" {{ request('status') == 'manager_approved' ? 'selected' : '' }}>Manager Approved</option>
                         <option value="rejected" {{ request('status') == 'rejected' ? 'selected' : '' }}>Rejected</option>
+                        <option value="cancelled" {{ request('status') == 'cancelled' ? 'selected' : '' }}>Cancelled</option>
                     </select>
                 </div>
+                <div class="col-md-3">
+                    <select name="leave_type_id" class="form-select">
+                        <option value="">All Types</option>
+                        @foreach($leaveTypes as $type)
+                            <option value="{{ $type->id }}" {{ request('leave_type_id') == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <div class="input-group">
+                        <input type="date" name="from_date" class="form-control" value="{{ request('from_date') }}" title="Leave from date">
+                        <input type="date" name="to_date" class="form-control" value="{{ request('to_date') }}" title="Leave to date">
+                    </div>
+                </div>
+                @if($showDepartmentFilter)
+                <div class="col-md-3">
+                    <select name="department_id" class="form-select">
+                        <option value="">All Departments</option>
+                        @foreach($departments as $dept)
+                            <option value="{{ $dept->id }}" {{ request('department_id') == $dept->id ? 'selected' : '' }}>{{ $dept->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                @endif
                 <div class="col-md-2">
                     <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Filter</button>
                     <a href="{{ route('leaves.manager.index') }}" class="btn btn-outline-secondary">Reset</a>

@@ -24,6 +24,14 @@
                         @endforeach
                     </select>
                 </div>
+                <div class="col-md-3">
+                    <select name="department_id" class="form-select">
+                        <option value="">All Departments</option>
+                        @foreach($departments as $dept)
+                            <option value="{{ $dept->id }}" {{ request('department_id') == $dept->id ? 'selected' : '' }}>{{ $dept->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
                 <div class="col-md-2">
                     <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Filter</button>
                     <a href="{{ route('leaves.manage-balances') }}" class="btn btn-outline-secondary">Reset</a>

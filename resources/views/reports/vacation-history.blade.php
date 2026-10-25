@@ -34,6 +34,10 @@
                             @endforeach
                         </select>
                     </div>
+                    <div class="col-md-3">
+                        <label for="search" class="form-label">Search</label>
+                        <input type="text" name="search" id="search" class="form-control" placeholder="Search by name or employee number" value="{{ request('search') }}">
+                    </div>
                     <div class="col-md-2">
                         <label for="year" class="form-label">Year</label>
                         <input type="number" name="year" id="year" class="form-control" 
@@ -90,10 +94,10 @@
                                     @endphp
                                     <tr>
                                         <td>{{ $row['year'] }}</td>
-                                        <td>{{ $row['entitled_days'] }}</td>
+                                        <td>{{ $row['entitled_days'] ?? '—' }}</td>
                                         <td>{{ $row['used_days'] }}</td>
-                                        <td class="{{ $carryForward > 0 ? 'text-success' : 'text-muted' }}">
-                                            {{ $carryForward > 0 ? $carryForward : '-' }}
+                                        <td class="{{ $carryForward > 0 ? 'text-success' : ($carryForward < 0 ? 'text-danger' : 'text-muted') }}">
+                                            {{ $carryForward }}
                                         </td>
                                         <td class="{{ $cumulativeBalance > 0 ? 'text-success' : 'text-danger' }}">
                                             <strong>{{ $cumulativeBalance }}</strong>

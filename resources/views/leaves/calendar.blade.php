@@ -52,9 +52,9 @@
 
 <div class="cal-wrap">
     <div class="cal-toolbar">
-        <a class="cal-nav-btn" href="{{ route('leaves.calendar', ['month' => $prevMonth, 'department_id' => $filterDeptId]) }}">‹ Prev</a>
+        <a class="cal-nav-btn" href="{{ route('leaves.calendar', array_merge(['month' => $prevMonth], request()->only(['department_id', 'leave_type_id', 'search', 'status']))) }}">‹ Prev</a>
         <h3>{{ $start->format('F Y') }}</h3>
-        <a class="cal-nav-btn" href="{{ route('leaves.calendar', ['month' => $nextMonth, 'department_id' => $filterDeptId]) }}">Next ›</a>
+        <a class="cal-nav-btn" href="{{ route('leaves.calendar', array_merge(['month' => $nextMonth], request()->only(['department_id', 'leave_type_id', 'search', 'status']))) }}">Next ›</a>
         <a class="cal-nav-btn" href="{{ route('leaves.calendar') }}">Today</a>
         <div class="cal-filter">
             <form method="GET" action="{{ route('leaves.calendar') }}" class="d-flex gap-2 align-items-center">
@@ -65,7 +65,24 @@
                         <option value="{{ $dept->id }}" {{ (int)$filterDeptId === $dept->id ? 'selected' : '' }}>{{ $dept->name }}</option>
                     @endforeach
                 </select>
-                @if($filterDeptId && !$scopedDeptId)
+                <input type="text" name="search" value="{{ request('search') }}" placeholder="Search employee...">
+                <select name="leave_type_id">
+                    <option value="">All Types</option>
+                    @foreach($leaveTypes as $type)
+                        <option value="{{ $type->id }}" {{ request('leave_type_id') == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
+                    @endforeach
+                </select>
+                <select name="status">
+                    <option value="">All Statuses</option>
+                    <option value="pending" {{ request('status') == 'pending' ? 'selected' : '' }}>Pending</option>
+                    <option value="hr_approved" {{ request('status') == 'hr_approved' ? 'selected' : '' }}>HR Approved</option>
+                    <option value="manager_approved" {{ request('status') == 'manager_approved' ? 'selected' : '' }}>Manager Approved</option>
+                    <option value="approved" {{ request('status') == 'approved' ? 'selected' : '' }}>Approved</option>
+                    <option value="rejected" {{ request('status') == 'rejected' ? 'selected' : '' }}>Rejected</option>
+                    <option value="cancelled" {{ request('status') == 'cancelled' ? 'selected' : '' }}>Cancelled</option>
+                </select>
+                <button type="submit" class="cal-nav-btn">Filter</button>
+                @if($filterDeptId || request('leave_type_id') || request('search') || request('status'))
                     <a href="{{ route('leaves.calendar', ['month' => $month]) }}" class="cal-nav-btn">Clear</a>
                 @endif
             </form>

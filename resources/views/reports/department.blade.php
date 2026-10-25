@@ -38,6 +38,10 @@
                     @endforeach
                 </select>
             </div>
+            <div class="col-md-2">
+                <label class="form-label">Search</label>
+                <input type="text" name="search" class="form-control" placeholder="Search department..." value="{{ request('search') }}">
+            </div>
             <div class="col-md-2 d-flex align-items-end">
                 <button type="submit" class="btn btn-secondary">Filter</button>
                 <a href="{{ route('reports.department') }}" class="btn btn-outline-secondary ms-2">Reset</a>

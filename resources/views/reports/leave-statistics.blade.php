@@ -14,7 +14,15 @@
                     <option value="{{ $y }}" {{ $year == $y ? 'selected' : '' }}>{{ $y }}</option>
                 @endfor
             </select>
+            <label class="mb-0">Department:</label>
+            <select name="department_id" class="form-select" style="width: auto;">
+                <option value="">All Departments</option>
+                @foreach($departments as $dept)
+                    <option value="{{ $dept->id }}" {{ $departmentId == $dept->id ? 'selected' : '' }}>{{ $dept->name }}</option>
+                @endforeach
+            </select>
             <button type="submit" class="btn btn-secondary">Filter</button>
+            <a href="{{ route('reports.leave-statistics') }}" class="btn btn-outline-secondary">Reset</a>
         </form>
     </div>
     <div class="col-md-6 text-end">
