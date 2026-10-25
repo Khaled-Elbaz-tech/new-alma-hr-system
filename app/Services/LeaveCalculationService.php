@@ -110,6 +110,68 @@ class LeaveCalculationService
         ];
     }
 
+
+    /**
+     * Visible annual balance under the company leave-visibility policy.
+     *
+     * RULE (user-confirmed): an employee's CURRENT-year annual entitlement
+     * is never visible and never counted during that year. It "opens"
+     * automatically on 1 January of the next year (pure date logic — no
+     * migration, no rollover job). Visible balance = entitlements of all
+     * years BEFORE the current year, minus approved annual leave used in
+     * ALL years (current-year requests deduct from the carried balance).
+     * Negative results are allowed and shown as-is, never floored at zero.
+     * Scope: ANNUAL leave only (code 'annual'), like the rest of this engine.
+     *
+     * Returns rows from the joining year through the current year:
+     *   rows[] = ['year', 'entitled' (null = hidden, current year only),
+     *             'used', 'remaining' (running visible balance),
+     *             'is_current', 'opens_on']
+     * plus visible_entitled / visible_used / visible_balance totals.
+     */
+    public function visibleBalanceData(Employee $employee): array
+    {
+        $currentYear = Carbon::now()->year;
+        $joiningYear = Carbon::parse($employee->joining_date)->year;
+
+        $rows = [];
+        $visibleEntitled = 0.0;
+        $visibleUsed = 0.0;
+        $running = 0.0;
+
+        for ($year = $joiningYear; $year <= $currentYear; $year++) {
+            $data = $this->calculateYearData($employee, $year);
+            $isCurrent = ($year === $currentYear);
+            // Current year: entitlement hidden (counted as 0 until 1 January).
+            $entitled = $isCurrent ? null : (float) ($data['days_entitled'] ?? 0);
+            $used = (float) ($data['days_used'] ?? 0);
+
+            if (!$isCurrent) {
+                $visibleEntitled += $entitled;
+            }
+            $visibleUsed += $used;
+            $running += ($entitled ?? 0) - $used;
+
+            $rows[] = [
+                'year' => $year,
+                'entitled' => $entitled,
+                'used' => round($used, 2),
+                'remaining' => round($running, 2),
+                'is_current' => $isCurrent,
+                'opens_on' => $isCurrent ? ('1 January ' . ($currentYear + 1)) : null,
+            ];
+        }
+
+        return [
+            'rows' => $rows,
+            'visible_entitled' => round($visibleEntitled, 2),
+            'visible_used' => round($visibleUsed, 2),
+            'visible_balance' => round($visibleEntitled - $visibleUsed, 2),
+            'current_year' => $currentYear,
+            'opens_on' => '1 January ' . ($currentYear + 1),
+        ];
+    }
+
     /**
      * Calculate months from hiring at end of a specific year
      * Excel: "Months From Hiring (Year)"

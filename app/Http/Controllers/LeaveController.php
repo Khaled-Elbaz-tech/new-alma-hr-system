@@ -89,28 +89,31 @@ class LeaveController extends Controller
         $yearlyData = $analysis['years'] ?? [];
         $currentYearData = $yearlyData[$currentYear] ?? null;
 
-        // Build leaveBalances collection dynamically for view compatibility
+        // Visible-balance policy: the card shows the VISIBLE progression
+        // (current-year entitlement hidden until 1 January of next year).
+        $visibleBalance = $calculationService->visibleBalanceData($employee);
         $leaveBalances = collect();
-        foreach ($yearlyData as $year => $data) {
+        foreach ($visibleBalance['rows'] as $row) {
             $leaveBalances->push((object) [
-                'year' => $year,
-                'entitled_days' => $data['days_entitled'] ?? 0,
-                'used_days' => $data['days_used'] ?? 0,
-                'ticket_count' => $data['ticket_count'] ?? 0,
-                'exit_reentry_count' => $data['exit_reentry_count'] ?? 0,
-                'balance' => $data['balance'] ?? 0,
+                'year' => $row['year'],
+                'entitled_days' => $row['entitled'],
+                'used_days' => $row['used'],
+                'ticket_count' => 0,
+                'exit_reentry_count' => 0,
+                'balance' => $row['remaining'],
             ]);
         }
 
-        // Get the annual leave balance for current year
-        $annualBalance = $currentYearData ? (object) [
+        // Visible balance for the form's balance check (current-year
+        // entitlement excluded until 1 January of the next year).
+        $annualBalance = (object) [
             'year' => $currentYear,
-            'entitled_days' => $currentYearData['days_entitled'] ?? 0,
-            'used_days' => $currentYearData['days_used'] ?? 0,
-            'ticket_count' => $currentYearData['ticket_count'] ?? 0,
-            'exit_reentry_count' => $currentYearData['exit_reentry_count'] ?? 0,
-            'balance' => $currentYearData['balance'] ?? 0,
-        ] : null;
+            'entitled_days' => $visibleBalance['visible_entitled'],
+            'used_days' => $visibleBalance['visible_used'],
+            'ticket_count' => 0,
+            'exit_reentry_count' => 0,
+            'balance' => $visibleBalance['visible_balance'],
+        ];
 
         // Get holidays in date range for calendar
         $holidays = Holiday::where('start_date', '>=', Carbon::now()->format('Y-m-d'))
@@ -119,7 +122,7 @@ class LeaveController extends Controller
 
         $showForm = $request->query('open_form', false);
 
-        return view('leaves.create', compact('employee', 'leaveTypes', 'leaveBalances', 'annualBalance', 'holidays', 'showForm'));
+        return view('leaves.create', compact('employee', 'leaveTypes', 'leaveBalances', 'annualBalance', 'visibleBalance', 'holidays', 'showForm'));
     }
 
     /**
@@ -160,15 +163,16 @@ class LeaveController extends Controller
             ]);
         }
 
-        // Get the annual leave balance for current year
-        $annualBalance = $currentYearData ? (object) [
+        // Visible balance for the form's balance check (current-year
+        // entitlement excluded until 1 January of the next year).
+        $annualBalance = (object) [
             'year' => $currentYear,
-            'entitled_days' => $currentYearData['days_entitled'] ?? 0,
-            'used_days' => $currentYearData['days_used'] ?? 0,
-            'ticket_count' => $currentYearData['ticket_count'] ?? 0,
-            'exit_reentry_count' => $currentYearData['exit_reentry_count'] ?? 0,
-            'balance' => $currentYearData['balance'] ?? 0,
-        ] : null;
+            'entitled_days' => $visibleBalance['visible_entitled'],
+            'used_days' => $visibleBalance['visible_used'],
+            'ticket_count' => 0,
+            'exit_reentry_count' => 0,
+            'balance' => $visibleBalance['visible_balance'],
+        ];
 
         $holidays = Holiday::where('start_date', '>=', Carbon::now()->format('Y-m-d'))
             ->orderBy('start_date')
@@ -185,6 +189,7 @@ class LeaveController extends Controller
             'leaveTypes',
             'leaveBalances',
             'annualBalance',
+            'visibleBalance',
             'holidays',
             'showForm',
             'yearlySummary'
@@ -202,14 +207,20 @@ class LeaveController extends Controller
         $analysis = $calculationService->analyze($employee);
         $yearlyData = $analysis['years'] ?? [];
 
+        // Visible-balance policy: the current year's entitlement is hidden
+        // (null) and counts as 0 until 1 January of the next year; the
+        // running balance therefore counts closed years only.
+        $visible = $calculationService->visibleBalanceData($employee);
+        $visibleRows = collect($visible['rows'])->keyBy('year');
+
         $summary = [];
-        $carryForward = 0;
 
         foreach ($yearlyData as $year => $data) {
-            $daysEntitled = $data['days_entitled'] ?? 0;
+            $vRow = $visibleRows[$year] ?? null;
+            $daysEntitled = $vRow ? $vRow['entitled'] : ($data['days_entitled'] ?? 0);
             $daysUsed = $data['days_used'] ?? 0;
-            $currentBalance = $data['balance'] ?? 0;
-            $carryForward = $data['carry_forward'] ?? ($currentBalance - $daysEntitled + $daysUsed);
+            $currentBalance = $vRow ? $vRow['remaining'] : ($data['balance'] ?? 0);
+            $carryForward = $currentBalance - ($daysEntitled ?? 0) + $daysUsed;
 
             $summary[] = [
                 'year' => $year,
@@ -294,17 +305,11 @@ class LeaveController extends Controller
         // Calculate calendar days
         $calendarDays = Carbon::parse($request->start_date)->diffInDays(Carbon::parse($request->end_date)) + 1;
 
-        // For annual leave, check balance using dynamic calculation (no LeaveBalance table)
-        if ($leaveType->code === 'annual') {
-            $yearData = $calculationService->calculateYearData($employee, $currentYear);
-            $available = $yearData['balance'] ?? 0;
-
-            if ($workingDays > $available) {
-                return back()->withErrors([
-                    'start_date' => "Insufficient leave balance. Current balance: {$available} working days, Requested: {$workingDays} days."
-                ])->withInput();
-            }
-        }
+        // Visible-balance policy: NO balance gate here by design. The
+        // current year's annual entitlement is not counted until 1 January
+        // of the next year, and requests are approved even when the visible
+        // balance goes negative — they deduct from the carried balance of
+        // closed years (see LeaveCalculationService::visibleBalanceData()).
 
         // Create leave request (balance is calculated dynamically from requests)
         $leaveRequest = LeaveRequest::create([
@@ -682,18 +687,11 @@ class LeaveController extends Controller
 
         $calendarDays = Carbon::parse($request->start_date)->diffInDays(Carbon::parse($request->end_date)) + 1;
 
-        // For annual leave, check balance using dynamic calculation
-        if ($leaveType->code === 'annual') {
-            $calculationService = app(LeaveCalculationService::class);
-            $yearData = $calculationService->calculateYearData($employee, $currentYear);
-            $available = $yearData['balance'] ?? 0;
-
-            if ($workingDays > $available) {
-                return back()->withErrors([
-                    'start_date' => "Insufficient leave balance. Current balance: {$available} working days, Requested: {$workingDays} days."
-                ])->withInput();
-            }
-        }
+        // Visible-balance policy: NO balance gate here by design. The
+        // current year's annual entitlement is not counted until 1 January
+        // of the next year, and requests are approved even when the visible
+        // balance goes negative — they deduct from the carried balance of
+        // closed years (see LeaveCalculationService::visibleBalanceData()).
 
         // Create leave request
         $leaveRequest = LeaveRequest::create([
