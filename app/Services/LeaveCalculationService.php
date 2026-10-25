@@ -283,62 +283,149 @@ class LeaveCalculationService
     }
 
     /**
-     * Calculate working days between two dates, excluding weekends and holidays.
-     * Uses WeekendSetting config for weekend days (defaults to Friday+Saturday).
+     * Effective end date of a holiday. A holiday with an empty end_date is a
+     * single-day holiday (end = start). This matters because
+     * Carbon::parse(null) returns "now", which would otherwise over-exclude
+     * every day up to today. Used by the breakdown and by the holiday
+     * recalculation in HolidayController (via the same rule there).
      */
-    public function calculateWorkingDays(Carbon $startDate, Carbon $endDate, int $employeeId = null): int
+    public function holidayEndDate(Holiday $holiday): Carbon
     {
-        // Get configured weekend days from settings
-        $weekendDays = WeekendSetting::getWeekendDays();
+        return $holiday->end_date
+            ? Carbon::parse($holiday->end_date)->startOfDay()
+            : Carbon::parse($holiday->start_date)->startOfDay();
+    }
+
+    /**
+     * Full breakdown of a leave range, so the number on the screen can be
+     * explained instead of just stated:
+     *   calendar_days = working_days + weekend_days + holiday_days
+     * A holiday that falls on a weekend counts as a WEEKEND day, not a
+     * holiday day (same precedence as the old counter: weekends first),
+     * so the three parts always sum exactly to the calendar span.
+     * weekend_day_names = the configured weekend weekday names
+     * (e.g. Friday, Saturday). holidays = one entry per excluded
+     * non-weekend holiday DATE in range: ['date' => 'Y-m-d', 'name' => ...].
+     * $employeeId is accepted for signature parity with
+     * calculateWorkingDays; the calculation itself is company-wide
+     * (weekends + holidays are not per-employee).
+     */
+    public function calculateWorkingDaysBreakdown(Carbon $startDate, Carbon $endDate, int $employeeId = null): array
+    {
+        $start = $startDate->copy()->startOfDay();
+        $end = $endDate->copy()->startOfDay();
+
+        $dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         $dayMap = [
             'sunday' => 0, 'monday' => 1, 'tuesday' => 2,
-            'wednesday' => 3, 'thursday' => 4, 'friday' => 5, 'saturday' => 6
+            'wednesday' => 3, 'thursday' => 4, 'friday' => 5, 'saturday' => 6,
         ];
         $weekendNums = [];
-        foreach ($weekendDays as $day) {
-            $dayLower = strtolower($day);
-            if (isset($dayMap[$dayLower])) {
-                $weekendNums[] = $dayMap[$dayLower];
+        foreach (WeekendSetting::getWeekendDays() as $day) {
+            $lower = strtolower($day);
+            if (isset($dayMap[$lower])) {
+                $weekendNums[] = $dayMap[$lower];
             }
         }
-
-        // Default to Friday+Saturday if no settings found
         if (empty($weekendNums)) {
             $weekendNums = [5, 6]; // Friday, Saturday
         }
+        $weekendDayNames = array_values(array_unique(array_map(fn ($n) => $dayNames[$n], $weekendNums)));
 
-        // Get holidays within date range
-        $holidayDates = collect();
-        $holidays = Holiday::where(function ($q) use ($startDate, $endDate) {
-            $q->whereBetween('start_date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
-              ->orWhereBetween('end_date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
-              ->orWhere(function ($sq) use ($startDate, $endDate) {
-                  $sq->where('start_date', '<=', $startDate->format('Y-m-d'))
-                     ->where('end_date', '>=', $endDate->format('Y-m-d'));
+        if ($end->lt($start)) {
+            return [
+                'calendar_days' => 0, 'weekend_days' => 0, 'weekend_day_names' => $weekendDayNames,
+                'holiday_days' => 0, 'holidays' => [], 'working_days' => 0,
+            ];
+        }
+
+        // Holidays overlapping the range. end_date may be null (single day);
+        // the start_date BETWEEN clause catches those, and the effective
+        // end below keeps the per-day expansion to that single day.
+        $holidays = Holiday::where(function ($q) use ($start, $end) {
+            $q->whereBetween('start_date', [$start->format('Y-m-d'), $end->format('Y-m-d')])
+              ->orWhereBetween('end_date', [$start->format('Y-m-d'), $end->format('Y-m-d')])
+              ->orWhere(function ($sq) use ($start, $end) {
+                  $sq->where('start_date', '<=', $start->format('Y-m-d'))
+                     ->where('end_date', '>=', $end->format('Y-m-d'));
               });
         })->get();
 
+        $holidayByDate = [];
         foreach ($holidays as $holiday) {
-            $hStart = Carbon::parse($holiday->start_date)->max($startDate);
-            $hEnd = Carbon::parse($holiday->end_date)->min($endDate);
-            for ($d = $hStart; $d->lte($hEnd); $d->addDay()) {
-                $holidayDates->push($d->format('Y-m-d'));
+            $hStart = Carbon::parse($holiday->start_date)->max($start);
+            $hEnd = $this->holidayEndDate($holiday)->min($end);
+            for ($d = $hStart->copy(); $d->lte($hEnd); $d->addDay()) {
+                $key = $d->format('Y-m-d');
+                if (!isset($holidayByDate[$key])) {
+                    $holidayByDate[$key] = $holiday->name;
+                }
             }
         }
 
-        // Count working days (excluding weekends and holidays)
+        $calendarDays = 0;
+        $weekendDays = 0;
+        $holidayDays = 0;
+        $holidayDates = [];
         $workingDays = 0;
-        for ($d = $startDate->copy(); $d->lte($endDate); $d->addDay()) {
+        for ($d = $start->copy(); $d->lte($end); $d->addDay()) {
+            $calendarDays++;
+            $key = $d->format('Y-m-d');
             if (in_array($d->dayOfWeek, $weekendNums)) {
-                continue;
+                $weekendDays++;
+            } elseif (isset($holidayByDate[$key])) {
+                $holidayDays++;
+                $holidayDates[] = ['date' => $key, 'name' => $holidayByDate[$key]];
+            } else {
+                $workingDays++;
             }
-            if ($holidayDates->contains($d->format('Y-m-d'))) {
-                continue;
-            }
-            $workingDays++;
         }
 
-        return $workingDays;
+        return [
+            'calendar_days' => $calendarDays,
+            'weekend_days' => $weekendDays,
+            'weekend_day_names' => $weekendDayNames,
+            'holiday_days' => $holidayDays,
+            'holidays' => $holidayDates,
+            'working_days' => $workingDays,
+        ];
+    }
+
+    /**
+     * Calculate working days between two dates, excluding weekends and holidays.
+     * Uses WeekendSetting config for weekend days (defaults to Friday+Saturday).
+     * Delegates to calculateWorkingDaysBreakdown so the stored total and the
+     * displayed explanation can never disagree.
+     */
+    public function calculateWorkingDays(Carbon $startDate, Carbon $endDate, int $employeeId = null): int
+    {
+        return $this->calculateWorkingDaysBreakdown($startDate, $endDate, $employeeId)['working_days'];
+    }
+
+    /**
+     * Approved ANNUAL requests of one employee, grouped by start_date year.
+     * This is exactly the population behind calculateDaysUsed()'s Used
+     * figure (approved + code 'annual' + start year), so a year's list
+     * always sums to that year's Used total. Used by the expandable
+     * per-year breakdowns on the balance pages.
+     *
+     * @return array<int, \Illuminate\Support\Collection>
+     */
+    public function approvedAnnualRequestsByYear(Employee $employee): array
+    {
+        $grouped = [];
+        $requests = LeaveRequest::where('employee_id', $employee->id)
+            ->where('status', 'approved')
+            ->whereHas('leaveType', function ($q) {
+                $q->where('code', 'annual');
+            })
+            ->with('leaveType')
+            ->orderBy('start_date')
+            ->get();
+        foreach ($requests as $request) {
+            $grouped[Carbon::parse($request->start_date)->year][] = $request;
+        }
+        return $grouped;
     }
 
     /**

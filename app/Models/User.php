@@ -24,6 +24,7 @@ class User extends Authenticatable
         'role_id',
         'is_active',
         'last_login',
+        'must_change_password',   // H8: forced reset flag for imported accounts
     ];
 
     /**
@@ -48,6 +49,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_active' => 'boolean',
             'last_login' => 'datetime',
+            'must_change_password' => 'boolean',   // H8
         ];
     }
 
