@@ -13,7 +13,14 @@
                     <option value="{{ $y }}" {{ $year == $y ? 'selected' : '' }}>{{ $y }}</option>
                 @endfor
             </select>
+            <input type="text" name="search" class="form-control" placeholder="Search holiday name..." value="{{ request('search') }}" style="width: auto;">
+            <select name="is_recurring" class="form-select" style="width: auto;">
+                <option value="">All</option>
+                <option value="1" {{ request('is_recurring') === '1' ? 'selected' : '' }}>Recurring</option>
+                <option value="0" {{ request('is_recurring') === '0' ? 'selected' : '' }}>One-time</option>
+            </select>
             <button type="submit" class="btn btn-secondary">Filter</button>
+            <a href="{{ route('holidays.index') }}" class="btn btn-outline-secondary">Reset</a>
         </form>
     </div>
     <div class="col-md-6 text-end">

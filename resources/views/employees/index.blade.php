@@ -4,6 +4,17 @@
 @section('page-title', 'Employees')
 
 @section('content')
+@if (session('import_passwords'))
+    <div class="alert alert-warning">
+        <strong>One-time passwords — copy these now. They will not be shown again.</strong>
+        <ul>
+            @foreach (session('import_passwords') as $cred)
+                <li>{{ $cred['email'] }} — <code>{{ $cred['password'] }}</code></li>
+            @endforeach
+        </ul>
+        <p>Each imported user must change this password on first login.</p>
+    </div>
+@endif
 <div class="row mb-3">
     <div class="col-md-12 d-flex gap-2">
         @can('create', \App\Models\Employee::class)
@@ -66,7 +77,7 @@
     <div class="card-header">
         <form method="GET" class="row g-3">
             <div class="col-md-3">
-                <input type="text" name="search" class="form-control" placeholder="Search by name or employee number" value="{{ request('search') }}">
+                <input type="text" name="search" class="form-control" placeholder="Search by name, email or employee number" value="{{ request('search') }}">
             </div>
             <div class="col-md-3">
                 <select name="department_id" class="form-select">
@@ -86,6 +97,12 @@
                     <option value="terminated" {{ request('status') == 'terminated' ? 'selected' : '' }}>Terminated</option>
                     <option value="on_leave" {{ request('status') == 'on_leave' ? 'selected' : '' }}>On Leave</option>
                 </select>
+            </div>
+            <div class="col-md-3">
+                <input type="date" name="joined_from" class="form-control" value="{{ request('joined_from') }}" title="Joined from">
+            </div>
+            <div class="col-md-3">
+                <input type="date" name="joined_to" class="form-control" value="{{ request('joined_to') }}" title="Joined to">
             </div>
             <div class="col-md-3">
                 <button type="submit" class="btn btn-secondary">Filter</button>

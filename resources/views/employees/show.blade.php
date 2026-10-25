@@ -218,7 +218,19 @@
                             <tr @if($row['is_current']) class="table-light" @endif>
                                 <td><strong>{{ $row['year'] }}</strong></td>
                                 <td>{{ $row['entitled'] === null ? '—' : number_format($row['entitled'], 2) }}</td>
-                                <td>{{ number_format($row['used'], 2) }}</td>
+                                <td>{{ number_format($row['used'], 2) }}
+                                @if(!empty($yearRequests[$row['year']] ?? []))
+                                <details class="mt-1">
+                                    <summary class="small text-muted" style="cursor:pointer;">Show {{ count($yearRequests[$row['year']]) }} approved annual request(s)</summary>
+                                    <ul class="small mb-0 ps-3">
+                                        @foreach($yearRequests[$row['year']] as $yr)
+                                        <li>{{ $yr->start_date->format('d M Y') }} &ndash; {{ $yr->end_date->format('d M Y') }}: {{ $yr->total_days }} days</li>
+                                        @endforeach
+                                    </ul>
+                                    <small class="text-muted">Total: {{ number_format(collect($yearRequests[$row['year']])->sum('total_days'), 2) }} days &mdash; this is the Used figure above.</small>
+                                </details>
+                                @endif
+                            </td>
                                 <td class="{{ $row['remaining'] < 0 ? 'text-danger' : 'text-success' }}">
                                     <strong>{{ number_format($row['remaining'], 2) }}</strong>
                                 </td>
@@ -231,6 +243,17 @@
                 <i class="fas fa-info-circle"></i>
                 {{ $visibleBalance['current_year'] }} entitlement opens on {{ $visibleBalance['opens_on'] }}.
             </p>
+            <div class="alert alert-info mt-3 mb-0">
+    <strong>How this is calculated:</strong> Only <strong>annual</strong> leave counts here.
+    Each year's "Used" is the sum of the <strong>approved annual requests that start in that year</strong>
+    (click "Show requests" on a Used figure to see them).
+    The visible balance = <strong>entitlements of closed years only</strong> minus
+    <strong>approved annual days used in all years, including the current year</strong>.
+    The current year's entitlement is hidden until <strong>1 January of the next year</strong>, when it
+    opens automatically — there is no manual rollover.
+    A negative balance is shown as-is and is never blocked or floored at zero.
+    Other leave types (sick, business, etc.) never change this number.
+</div>
         </div>
     </div>
 @endif
@@ -352,8 +375,8 @@
                                         <td>{{ $yearData['year'] }}</td>
                                         <td>{{ $yearData['entitled_days'] === null ? '—' : $yearData['entitled_days'] }}</td>
                                         <td>{{ $yearData['used_days'] }}</td>
-                                        <td class="{{ $carryForward > 0 ? 'text-success' : 'text-muted' }}">
-                                            {{ $carryForward > 0 ? $carryForward : '-' }}
+                                        <td class="{{ $carryForward > 0 ? 'text-success' : ($carryForward < 0 ? 'text-danger' : 'text-muted') }}">
+                                            {{ $carryForward }}
                                         </td>
                                         <td class="{{ $cumulativeBalance > 0 ? 'text-success' : 'text-danger' }}">
                                             <strong>{{ $cumulativeBalance }}</strong>

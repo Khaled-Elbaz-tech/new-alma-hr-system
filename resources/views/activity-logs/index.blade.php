@@ -9,6 +9,22 @@
     <div class="card-header">
         <form method="GET" class="row g-3">
             <div class="col-md-2">
+                <select name="user_id" class="form-select">
+                    <option value="">All Users</option>
+                    @foreach($users as $u)
+                        <option value="{{ $u->id }}" {{ request('user_id') == $u->id ? 'selected' : '' }}>{{ $u->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select name="model_type" class="form-select">
+                    <option value="">All Models</option>
+                    @foreach($modelTypes as $modelType)
+                        <option value="{{ $modelType }}" {{ request('model_type') == $modelType ? 'selected' : '' }}>{{ class_basename($modelType) }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-2">
                 <select name="action" class="form-select">
                     <option value="">All Actions</option>
                     @foreach($actions as $action)

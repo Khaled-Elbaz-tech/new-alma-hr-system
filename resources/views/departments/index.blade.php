@@ -12,6 +12,28 @@
     </div>
 </div>
 
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3">
+            <div class="col-md-5">
+                <input type="text" name="search" class="form-control" placeholder="Search by department name or code" value="{{ request('search') }}">
+            </div>
+            <div class="col-md-3">
+                <select name="is_active" class="form-select">
+                    <option value="">All Statuses</option>
+                    <option value="1" {{ request('is_active') === '1' ? 'selected' : '' }}>Active</option>
+                    <option value="0" {{ request('is_active') === '0' ? 'selected' : '' }}>Inactive</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-secondary">Filter</button>
+                <a href="{{ route('departments.index') }}" class="btn btn-outline-secondary">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
 @if($departments->count() > 0)
     <div class="row">
         @foreach($departments as $department)

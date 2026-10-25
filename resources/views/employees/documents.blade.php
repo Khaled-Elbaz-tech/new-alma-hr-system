@@ -12,7 +12,7 @@
         <form method="GET" class="row g-3 mb-4">
             <div class="col-md-4">
                 <label for="search" class="form-label">Search</label>
-                <input type="text" name="search" id="search" class="form-control" value="{{ request('search') }}" placeholder="Search by name or employee number...">
+                <input type="text" name="search" id="search" class="form-control" value="{{ request('search') }}" placeholder="Search by name, email or employee number...">
             </div>
             <div class="col-md-3">
                 <label for="department_id" class="form-label">Department</label>
@@ -35,8 +35,17 @@
                     <option value="on_leave" {{ request('status') == 'on_leave' ? 'selected' : '' }}>On Leave</option>
                 </select>
             </div>
-            <div class="col-md-2 d-flex align-items-end">
+            <div class="col-md-2">
+                <label for="joined_from" class="form-label">Joined From</label>
+                <input type="date" name="joined_from" id="joined_from" class="form-control" value="{{ request('joined_from') }}">
+            </div>
+            <div class="col-md-2">
+                <label for="joined_to" class="form-label">Joined To</label>
+                <input type="date" name="joined_to" id="joined_to" class="form-control" value="{{ request('joined_to') }}">
+            </div>
+            <div class="col-md-2 d-flex align-items-end gap-2">
                 <button type="submit" class="btn btn-primary w-100">Filter</button>
+                <a href="{{ route('employees.documents') }}" class="btn btn-outline-secondary">Reset</a>
             </div>
         </form>
 

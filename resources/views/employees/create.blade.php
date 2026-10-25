@@ -45,6 +45,12 @@
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
+                            <label class="form-label">Confirm Password</label>
+                            <input type="password" name="password_confirmation" class="form-control" required minlength="8">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
                             <label class="form-label">Employee Number</label>
                             <input type="text" name="employee_number" class="form-control" value="{{ old('employee_number') }}" required>
                         </div>

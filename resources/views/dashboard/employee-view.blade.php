@@ -26,7 +26,7 @@
                             <tbody>
                                 <tr>
                                     <td>Annual Leave</td>
-                                    <td>{{ $currentBalance->entitled_days }}</td>
+                                    <td>{{ $currentBalance->entitled_days ?? '—' }}</td>
                                     <td>{{ $currentBalance->used_days }}</td>
                                     <td class="{{ $currentBalance->balance > 0 ? 'text-success' : 'text-danger' }}">
                                         <strong>{{ $currentBalance->balance }}</strong>

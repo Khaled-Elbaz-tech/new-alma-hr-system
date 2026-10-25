@@ -12,6 +12,37 @@
     </div>
 </div>
 
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3">
+            <div class="col-md-4">
+                <input type="text" name="search" class="form-control" placeholder="Search by field label or name" value="{{ request('search') }}">
+            </div>
+            <div class="col-md-3">
+                <select name="field_type" class="form-select">
+                    <option value="">All Types</option>
+                    @foreach(['text', 'textarea', 'number', 'date', 'email', 'phone', 'attachment', 'checkbox', 'radio', 'select', 'yes_no'] as $t)
+                        <option value="{{ $t }}" {{ request('field_type') == $t ? 'selected' : '' }}>{{ ucfirst(str_replace('_', ' ', $t)) }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select name="field_section" class="form-select">
+                    <option value="">All Sections</option>
+                    @foreach($sections as $section)
+                        <option value="{{ $section }}" {{ request('field_section') == $section ? 'selected' : '' }}>{{ ucfirst($section) }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-secondary">Filter</button>
+                <a href="{{ route('dynamic-forms.index') }}" class="btn btn-outline-secondary">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header">
         <h5 class="mb-0">Custom Employee Fields</h5>

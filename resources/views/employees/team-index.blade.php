@@ -29,6 +29,18 @@
                     <option value="on_leave" {{ request('status') == 'on_leave' ? 'selected' : '' }}>On Leave</option>
                 </select>
             </div>
+            <div class="col-md-4">
+                <label class="form-label">Search</label>
+                <input type="text" name="search" class="form-control" placeholder="Search by name, email or employee number" value="{{ request('search') }}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Joined From</label>
+                <input type="date" name="joined_from" class="form-control" value="{{ request('joined_from') }}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Joined To</label>
+                <input type="date" name="joined_to" class="form-control" value="{{ request('joined_to') }}">
+            </div>
             <div class="col-md-4 d-flex align-items-end">
                 <button type="submit" class="btn btn-primary">Filter</button>
                 <a href="{{ route('team.employees') }}" class="btn btn-secondary ms-2">Reset</a>
