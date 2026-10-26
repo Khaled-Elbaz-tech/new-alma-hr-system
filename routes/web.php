@@ -28,7 +28,7 @@ Route::middleware(['auth'])->group(function () {
     // Employee self-cancel (H6/WF-02): auth-only on purpose. The controller
     // is the gate — it aborts 403 unless the leave belongs to the caller's
     // own employee record, and refuses anything not pending. No role group.
-    Route::post('/leaves/{leaveRequest}/cancel', [App\Http\Controllers\LeaveController::class, 'cancel'])->name('leaves.cancel');
+    Route::post('/leaves/{leave}/cancel', [App\Http\Controllers\LeaveController::class, 'cancel'])->name('leaves.cancel');
 
     // Team leave calendar (all roles; controller scopes by department)
     Route::get('/leaves/calendar', [App\Http\Controllers\LeaveController::class, 'calendar'])->name('leaves.calendar');
@@ -54,14 +54,14 @@ Route::middleware(['auth'])->group(function () {
         
         // Leave Management
         Route::get('/leaves', [App\Http\Controllers\LeaveController::class, 'index'])->name('leaves.index');
-        Route::delete('/leaves/{leaveRequest}', [App\Http\Controllers\LeaveController::class, 'destroy'])->name('leaves.destroy');
+        Route::delete('/leaves/{leave}', [App\Http\Controllers\LeaveController::class, 'destroy'])->name('leaves.destroy');
         // Leave-clarity: HR/admin edit of a leave REQUEST (not a balance row).
-        Route::get('/leaves/{leaveRequest}/edit', [App\Http\Controllers\LeaveController::class, 'edit'])->name('leaves.edit');
-        Route::put('/leaves/{leaveRequest}', [App\Http\Controllers\LeaveController::class, 'update'])->name('leaves.update');
+        Route::get('/leaves/{leave}/edit', [App\Http\Controllers\LeaveController::class, 'edit'])->name('leaves.edit');
+        Route::put('/leaves/{leave}', [App\Http\Controllers\LeaveController::class, 'update'])->name('leaves.update');
         Route::get('/leaves/create-for-employee', [App\Http\Controllers\LeaveController::class, 'createForEmployee'])->name('leaves.create-for-employee');
         Route::post('/leaves/create-for-employee', [App\Http\Controllers\LeaveController::class, 'storeForEmployee'])->name('leaves.store-for-employee');
         Route::get('/leaves/employee/{employee}', [App\Http\Controllers\LeaveController::class, 'getEmployeeData'])->name('leaves.employee-data');
-        Route::post('/leaves/{leaveRequest}/hr-approve', [App\Http\Controllers\LeaveController::class, 'hrApprove'])->name('leaves.hr-approve');
+        Route::post('/leaves/{leave}/hr-approve', [App\Http\Controllers\LeaveController::class, 'hrApprove'])->name('leaves.hr-approve');
         Route::post('/leaves/historical', [App\Http\Controllers\LeaveController::class, 'storeHistorical'])->name('leaves.historical');
         Route::get('/leaves/historical/create', [App\Http\Controllers\LeaveController::class, 'createHistorical'])->name('leaves.historical.create');
         Route::get('/leaves/historical/template', [App\Http\Controllers\LeaveController::class, 'historicalTemplate'])->name('leaves.historical.template');
@@ -102,10 +102,10 @@ Route::middleware(['auth'])->group(function () {
         // Manager approval step (H6/WF-01): reachable by manager/dm now.
         // Controller enforces department scope for manager/dm actors
         // (M1) and the hr_approved status guard; HR/super_admin exempt.
-        Route::post('/leaves/{leaveRequest}/manager-approve', [App\Http\Controllers\LeaveController::class, 'managerApprove'])->name('leaves.manager-approve');
+        Route::post('/leaves/{leave}/manager-approve', [App\Http\Controllers\LeaveController::class, 'managerApprove'])->name('leaves.manager-approve');
         // Rejection (H6/WF-01 + H7/WF-05): controller enforces department
         // scope for manager/dm and allows only pending / hr_approved.
-        Route::post('/leaves/{leaveRequest}/reject', [App\Http\Controllers\LeaveController::class, 'reject'])->name('leaves.reject');
+        Route::post('/leaves/{leave}/reject', [App\Http\Controllers\LeaveController::class, 'reject'])->name('leaves.reject');
     });
     
     // Employee - view own profile

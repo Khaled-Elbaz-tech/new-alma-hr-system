@@ -41,7 +41,7 @@
                     <div class="mb-3">
                         <label class="form-label">Year <span class="text-danger">*</span></label>
                         <select name="year" class="form-select" required>
-                            @for($y = date('Y') - 1; $y <= date('Y') + 5; $y++)
+                            @for($y = date('Y') - 10; $y <= date('Y') + 5; $y++)
                                 <option value="{{ $y }}" {{ old('year', date('Y')) == $y ? 'selected' : '' }}>{{ $y }}</option>
                             @endfor
                         </select>
