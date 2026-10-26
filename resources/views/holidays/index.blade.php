@@ -9,7 +9,7 @@
         <form method="GET" class="d-flex gap-2 align-items-center">
             <label class="mb-0">Year:</label>
             <select name="year" class="form-select" style="width: auto;">
-                @for($y = date('Y') - 2; $y <= date('Y') + 2; $y++)
+                @for($y = date('Y') - 10; $y <= date('Y') + 2; $y++)
                     <option value="{{ $y }}" {{ $year == $y ? 'selected' : '' }}>{{ $y }}</option>
                 @endfor
             </select>

@@ -11,9 +11,12 @@
                 <h5 class="mb-0"><i class="fas fa-pencil-alt"></i> Edit Leave Request #{{ $leave->id }}</h5>
             </div>
             <div class="card-body">
+                @if(!$leave->employee)
+                    <div class="alert alert-warning mb-4">This leave request has no linked employee record (orphaned data) — the employee name cannot be shown, but the dates, type and reason below can still be edited.</div>
+                @endif
                 <div class="alert alert-light border mb-4">
-                    <p class="mb-1"><strong>Employee:</strong> {{ $leave->employee->user->name }} ({{ $leave->employee->employee_number }})</p>
-                    <p class="mb-1"><strong>Department:</strong> {{ $leave->employee->department->name ?? 'N/A' }}</p>
+                    <p class="mb-1"><strong>Employee:</strong> {{ $leave->employee?->user?->name ?? 'Unknown employee' }} ({{ $leave->employee?->employee_number ?? '—' }})</p>
+                    <p class="mb-1"><strong>Department:</strong> {{ $leave->employee?->department?->name ?? 'N/A' }}</p>
                     <p class="mb-1"><strong>Status:</strong> {{ ucfirst($leave->status) }} <span class="text-muted">(status cannot be changed here — use the approve / reject flow)</span></p>
                     <p class="mb-0"><strong>Currently stored:</strong> {{ $breakdown['calendar_days'] }} calendar days &minus; {{ $breakdown['weekend_days'] }} weekend days ({{ implode(', ', $breakdown['weekend_day_names']) }}) &minus; {{ $breakdown['holiday_days'] }} holiday days = <strong>{{ $breakdown['working_days'] }} working days</strong> (stored total: {{ $leave->total_days }} days)</p>
                     @if(count($breakdown['holidays']) > 0)
