@@ -303,12 +303,12 @@
             <div class="card-body">
                 @if($employee->leaveRequests->count() > 0)
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-hover" id="leave-history-table">
                             <thead>
                                 <tr>
                                     <th>Type</th>
-                                    <th>Start Date</th>
-                                    <th>End Date</th>
+                                    <th data-sort-key="start"><button type="button" class="btn btn-link p-0 text-reset text-decoration-none fw-bold" title="Sort by start date">Start Date <span class="sort-arrow" aria-hidden="true">↕</span></button></th>
+                                    <th data-sort-key="end"><button type="button" class="btn btn-link p-0 text-reset text-decoration-none fw-bold" title="Sort by end date">End Date <span class="sort-arrow" aria-hidden="true">↕</span></button></th>
                                     <th>Days</th>
                                     <th>Status</th>
                                 </tr>
@@ -316,9 +316,9 @@
                             <tbody>
                                 @foreach($employee->leaveRequests as $leave)
                                     <tr>
-                                        <td>{{ $leave->leaveType->name }}</td>
-                                        <td>{{ $leave->start_date->format('d M Y') }}</td>
-                                        <td>{{ $leave->end_date->format('d M Y') }}</td>
+                                        <td>{{ $leave->leaveType->name }}@if($leave->leaveType->code === 'annual' && $leave->status === 'approved') <span class="badge bg-info text-dark" title="Deducted from annual leave balance">Deducted</span>@endif</td>
+                                        <td data-sort-start="{{ $leave->start_date->format('Y-m-d') }}">{{ $leave->start_date->format('d M Y') }}</td>
+                                        <td data-sort-end="{{ $leave->end_date->format('Y-m-d') }}">{{ $leave->end_date->format('d M Y') }}</td>
                                         <td>{{ $leave->total_days }}</td>
                                         <td>
                                             @if($leave->status == 'pending')
@@ -404,4 +404,51 @@
     </a>
     @endcan
 </div>
+@endsection
+
+@section('scripts')
+<script>
+(function () {
+    var table = document.getElementById('leave-history-table');
+    if (!table) return;
+    var tbody = table.querySelector('tbody');
+    var headers = table.querySelectorAll('th[data-sort-key]');
+    var state = { key: null, dir: -1 };
+    function sortValue(row, key) {
+        var cell = row.querySelector('td[data-sort-' + key + ']');
+        return cell ? cell.getAttribute('data-sort-' + key) : '';
+    }
+    headers.forEach(function (th) {
+        var button = th.querySelector('button');
+        var arrow = th.querySelector('.sort-arrow');
+        button.addEventListener('click', function () {
+            var key = th.getAttribute('data-sort-key');
+            if (state.key === key) {
+                state.dir = -state.dir;
+            } else {
+                state.key = key;
+                state.dir = -1;
+            }
+            var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+            rows.sort(function (a, b) {
+                var va = sortValue(a, key), vb = sortValue(b, key);
+                if (va < vb) return -state.dir;
+                if (va > vb) return state.dir;
+                return 0;
+            });
+            rows.forEach(function (row) { tbody.appendChild(row); });
+            headers.forEach(function (h) {
+                var a = h.querySelector('.sort-arrow');
+                if (h === th) {
+                    a.textContent = state.dir === -1 ? '▼' : '▲';
+                    h.setAttribute('aria-sort', state.dir === -1 ? 'descending' : 'ascending');
+                } else {
+                    a.textContent = '↕';
+                    h.removeAttribute('aria-sort');
+                }
+            });
+        });
+    });
+})();
+</script>
 @endsection
