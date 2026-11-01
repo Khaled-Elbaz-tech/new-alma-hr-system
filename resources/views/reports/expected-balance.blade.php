@@ -16,8 +16,16 @@
 </div>
 
 <div class="card mb-4">
-    <div class="card-header">
+    <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0"><i class="fas fa-calendar-plus"></i> Expected Balances — 1 January {{ $nextYear }}</h5>
+        <div class="d-flex gap-2">
+            <a href="{{ route('reports.export.expected-balance', ['format' => 'csv']) }}" class="btn btn-primary btn-sm">
+                <i class="fas fa-file-csv"></i> Download CSV
+            </a>
+            <a href="{{ route('reports.export.expected-balance', ['format' => 'xlsx']) }}" class="btn btn-success btn-sm">
+                <i class="fas fa-file-excel"></i> Download Excel
+            </a>
+        </div>
     </div>
     <div class="card-body">
         @if(isset($rows) && count($rows) > 0)

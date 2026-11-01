@@ -90,6 +90,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/reports/export/year-by-year', [App\Http\Controllers\ReportsController::class, 'exportYearByYear'])->name('reports.export.year-by-year');
         Route::get('/reports/export/leave-history', [App\Http\Controllers\ReportsController::class, 'exportLeaveHistory'])->name('reports.export.leave-history');
         Route::get('/reports/export/vacation-history', [App\Http\Controllers\ReportsController::class, 'exportVacationHistory'])->name('reports.export.vacation-history');
+        Route::get('/reports/export/expected-balance', [App\Http\Controllers\ReportsController::class, 'exportExpectedBalance'])->name('reports.export.expected-balance');
     });
     
     // Manager/DM routes - read-only access to their department employees

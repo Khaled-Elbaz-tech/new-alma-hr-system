@@ -91,16 +91,16 @@ class ReportsController extends Controller
      * kept — they are harmless inside a quoted string once CR/LF/quote/
      * backslash are removed — so filenames stay recognisable.
      */
-    protected function safeFilename(string $filename): string
+    protected function safeFilename(string $filename, string $extension = 'csv'): string
     {
         $clean = str_replace(["\r", "\n", '"', "'", '\\', '/'], '', $filename);
         $clean = preg_replace('/[\x00-\x1F\x7F]+/', '', $clean);
         $clean = trim($clean, " .");
         if ($clean === '') {
-            $clean = 'export.csv';
+            $clean = 'export.' . $extension;
         }
-        if (!str_ends_with(strtolower($clean), '.csv')) {
-            $clean .= '.csv';
+        if (!str_ends_with(strtolower($clean), '.' . $extension)) {
+            $clean .= '.' . $extension;
         }
         return $clean;
     }
@@ -387,8 +387,9 @@ class ReportsController extends Controller
     // uses. Scope copies EmployeeController::index()'s base query:
     // all employees except soft-deleted ones (SoftDeletes global
     // scope); no employment_status filter is invented here. Default
-    // sort: expected balance ascending, then employee name. No export,
-    // no filters.
+    // sort: expected balance ascending, then employee name. Export is
+    // exportExpectedBalance() below (same rows, ?format=csv|xlsx).
+    // No filters.
     //
     // Each employee also gets year-by-year detail rows (joining year
     // through the current year, from visibleBalanceData()): closed
@@ -402,6 +403,19 @@ class ReportsController extends Controller
     // awaitingApprovalAnnualByYear() (same awaiting-approval status
     // set as expectedBalanceData()).
     public function expectedBalance(Request $request)
+    {
+        [$rows, $currentYear, $nextYear] = $this->buildExpectedBalanceRows();
+
+        return view('reports.expected-balance', compact('rows', 'currentYear', 'nextYear'));
+    }
+
+    /**
+     * Shared row builder for the Expected Balance page AND its CSV/XLSX
+     * exports, so the two can never drift. Returns
+     * [$rows, $currentYear, $nextYear] in exactly the order and shape
+     * the page has always received.
+     */
+    protected function buildExpectedBalanceRows(): array
     {
         $currentYear = Carbon::now()->year;
         $nextYear = $currentYear + 1;
@@ -460,7 +474,156 @@ class ReportsController extends Controller
             return strcmp($a['employee']->user->name ?? '', $b['employee']->user->name ?? '');
         });
 
-        return view('reports.expected-balance', compact('rows', 'currentYear', 'nextYear'));
+        return [$rows, $currentYear, $nextYear];
+    }
+
+    // Export Expected Balance — CSV + XLSX, same rows as the page.
+    // One route with ?format=csv|xlsx (default csv); any other format
+    // redirects back to the report instead of 500ing.
+    public function exportExpectedBalance(Request $request)
+    {
+        $format = $request->query('format', 'csv');
+        if (!in_array($format, ['csv', 'xlsx'], true)) {
+            return redirect()->route('reports.expected-balance');
+        }
+
+        [$rows, $currentYear, $nextYear] = $this->buildExpectedBalanceRows();
+        $headers = $this->expectedExportHeaders($currentYear, $nextYear);
+        $flat = $this->expectedExportRows($rows);
+
+        if ($format === 'xlsx') {
+            return $this->exportExpectedBalanceXlsx($headers, $flat, $nextYear);
+        }
+
+        return response()->stream(function () use ($headers, $flat) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, array_map([$this, 'sanitizeCsvCell'], $headers), ',', '"', '');
+            foreach ($flat as $row) {
+                fputcsv($out, array_map([$this, 'sanitizeCsvCell'], array_values($row)), ',', '"', '');
+            }
+            fclose($out);
+        }, 200, $this->csvResponseHeaders("expected-balance-{$nextYear}.csv"));
+    }
+
+    /**
+     * The single column list shared by the CSV and XLSX exports, so
+     * both files always have identical columns in identical order.
+     */
+    protected function expectedExportHeaders(int $currentYear, int $nextYear): array
+    {
+        return [
+            'Employee',
+            'Department',
+            'Status',
+            'Joining Date',
+            'Visible Balance',
+            "{$currentYear} Entitlement (Full)",
+            "{$currentYear} Used (Approved)",
+            "Pending {$currentYear}",
+            "Expected 1 Jan {$nextYear}",
+            "Approved Booked for {$nextYear}",
+            'Expected if Pending Approved',
+            'Year',
+            'Year Entitled',
+            'Year Used',
+            'Year Pending',
+            'Year Remaining',
+            'Year Expected Remaining',
+        ];
+    }
+
+    /**
+     * Flatten the page rows: one row per employee per year-detail row
+     * (including the booked-only next-year row when present), repeating
+     * the employee summary fields on each row. Employees with no
+     * detail rows (e.g. joining date in a future year) get one row
+     * with empty year columns so they are not silently dropped.
+     */
+    protected function expectedExportRows(array $rows): array
+    {
+        $flat = [];
+        foreach ($rows as $row) {
+            $emp = $row['employee'];
+            $expected = $row['expected'];
+            $summary = [
+                $emp->user->name ?? 'N/A',
+                $emp->department->name ?? 'N/A',
+                $emp->employment_status ?? '',
+                $emp->joining_date ? $emp->joining_date->format('Y-m-d') : '',
+                (float) $expected['visible_balance'],
+                (float) $expected['current_year_entitled_full'],
+                (float) $expected['current_year_used'],
+                (float) $expected['pending_current_year'],
+                (float) $expected['expected_balance'],
+                (float) $expected['approved_next_year_used'],
+                (float) $expected['expected_if_pending_approved'],
+            ];
+            $details = $row['detail_rows'] ?? [];
+            if ($details === []) {
+                $flat[] = array_merge($summary, ['', null, null, null, null, null]);
+                continue;
+            }
+            foreach ($details as $d) {
+                $flat[] = array_merge($summary, [
+                    $d['year_label'],
+                    $d['entitled'],
+                    (float) $d['used'],
+                    (float) $d['pending'],
+                    (float) $d['remaining'],
+                    $d['expected_remaining'],
+                ]);
+            }
+        }
+        return $flat;
+    }
+
+    /**
+     * Real .xlsx via PhpSpreadsheet (declared dependency, ^5.9).
+     * Same pattern as EmployeeController::exportExcel(): array-coordinate
+     * getCell()/setCellValueExplicit() (the 2026-10-22 fix), explicit
+     * string cells for text (sanitised), numbers written as numbers so
+     * negative balances are never quote-prefixed. Header bold, frozen
+     * top row, one sheet named "Expected Balance".
+     */
+    protected function exportExpectedBalanceXlsx(array $headers, array $flat, int $nextYear)
+    {
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Expected Balance');
+
+        foreach ($headers as $col => $header) {
+            $cell = $sheet->getCell([$col + 1, 1]);
+            $cell->setValue($header);
+            $cell->getStyle()->getFont()->setBold(true)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('FFFFFF'));
+            $cell->getStyle()->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                ->getStartColor()->setRGB('8B251E');
+        }
+
+        $rowNum = 2;
+        foreach ($flat as $row) {
+            foreach (array_values($row) as $col => $value) {
+                if (is_int($value) || is_float($value)) {
+                    $sheet->setCellValue([$col + 1, $rowNum], $value);
+                } else {
+                    $sheet->setCellValueExplicit([$col + 1, $rowNum], $this->sanitizeCsvCell((string) ($value ?? '')), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                }
+            }
+            $rowNum++;
+        }
+
+        $sheet->freezePane('A2');
+        foreach (range('A', 'Q') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        $filename = $this->safeFilename("expected-balance-{$nextYear}.xlsx", 'xlsx');
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     // Leave History Report
