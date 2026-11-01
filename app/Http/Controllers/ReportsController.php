@@ -114,11 +114,45 @@ class ReportsController extends Controller
     }
 
     /**
+     * Driver-aware YEAR() / MONTH() expressions for grouped queries.
+     *
+     * Production runs MySQL, where YEAR(col) / MONTH(col) are native.
+     * Local development may run SQLite, which has no YEAR() function
+     * (it 500s with "no such function: YEAR"), so SQLite uses
+     * strftime() cast back to integer. PostgreSQL uses EXTRACT()
+     * (standard SQL, not exercised locally). SQL Server also has
+     * YEAR() / MONTH(), so it takes the default branch. The returned
+     * values are integers on every driver, and the MySQL SQL is
+     * unchanged, so MySQL results do not change.
+     *
+     * $column is a bare or table-qualified column name, e.g.
+     * 'start_date' or 'leave_requests.start_date'.
+     */
+    protected function yearExpression(string $column): string
+    {
+        return match (DB::connection()->getDriverName()) {
+            'sqlite' => "CAST(strftime('%Y', {$column}) AS INTEGER)",
+            'pgsql' => "EXTRACT(YEAR FROM {$column})",
+            default => "YEAR({$column})",
+        };
+    }
+
+    protected function monthExpression(string $column): string
+    {
+        return match (DB::connection()->getDriverName()) {
+            'sqlite' => "CAST(strftime('%m', {$column}) AS INTEGER)",
+            'pgsql' => "EXTRACT(MONTH FROM {$column})",
+            default => "MONTH({$column})",
+        };
+    }
+
+    /**
      * WF-16: one grouped query for ALL approved-annual usage of a set of
      * employees, instead of one query per employee per year inside
      * analyze()/calculateYearData(). Returns
      * [employee_id][year] => ['used' => float, 'tickets' => int, 'exits' => int].
-     * Uses MySQL YEAR() (production DB is MySQL; QA plan requires MySQL CI).
+     * The year expression is driver-aware (see yearExpression()):
+     * YEAR() on MySQL, strftime() on SQLite, EXTRACT() on PostgreSQL.
      */
     protected function groupedAnnualStats(array $employeeIds): array
     {
@@ -126,7 +160,7 @@ class ReportsController extends Controller
             return [];
         }
         $rows = LeaveRequest::selectRaw(
-                'employee_id, YEAR(start_date) as y, SUM(total_days) as used, '
+                'employee_id, ' . $this->yearExpression('start_date') . ' as y, SUM(total_days) as used, '
                 . 'SUM(CASE WHEN flight_ticket_required THEN 1 ELSE 0 END) as tickets, '
                 . 'SUM(CASE WHEN exit_reentry_required THEN 1 ELSE 0 END) as exits'
             )
@@ -135,7 +169,7 @@ class ReportsController extends Controller
             ->whereHas('leaveType', function ($q) {
                 $q->where('code', 'annual');
             })
-            ->groupBy('employee_id', DB::raw('YEAR(start_date)'))
+            ->groupBy('employee_id', DB::raw($this->yearExpression('start_date')))
             ->get();
 
         $stats = [];
@@ -536,11 +570,11 @@ class ReportsController extends Controller
 
         // Monthly breakdown for the current year (absence trend).
         $monthlyRows = LeaveRequest::join('employees', 'leave_requests.employee_id', '=', 'employees.id')
-            ->selectRaw('employees.department_id as dept_id, MONTH(leave_requests.start_date) as m, COUNT(*) as cnt')
+            ->selectRaw('employees.department_id as dept_id, ' . $this->monthExpression('leave_requests.start_date') . ' as m, COUNT(*) as cnt')
             ->whereIn('leave_requests.employee_id', $allEmployeeIds)
             ->whereYear('leave_requests.start_date', Carbon::now()->year)
             ->where('leave_requests.status', 'approved')
-            ->groupBy('employees.department_id', DB::raw('MONTH(leave_requests.start_date)'))
+            ->groupBy('employees.department_id', DB::raw($this->monthExpression('leave_requests.start_date')))
             ->get();
 
         $monthlyByDept = [];
@@ -780,11 +814,11 @@ class ReportsController extends Controller
         // WF-16: the base version ran 36 monthly queries (12 months x 3
         // statuses) + 2 queries per leave type + 2 service-count queries.
         // Monthly statistics: ONE grouped query by month + status.
-        $monthlyRows = LeaveRequest::selectRaw('MONTH(start_date) as m, status, COUNT(*) as cnt')
+        $monthlyRows = LeaveRequest::selectRaw($this->monthExpression('start_date') . ' as m, status, COUNT(*) as cnt')
             ->whereYear('start_date', $year)
             ->whereIn('status', ['approved', 'rejected', 'pending'])
             ->when($departmentId, $deptScope)
-            ->groupBy(DB::raw('MONTH(start_date)'), 'status')
+            ->groupBy(DB::raw($this->monthExpression('start_date')), 'status')
             ->get();
 
         $monthlyStats = [];
