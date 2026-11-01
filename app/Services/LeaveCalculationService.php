@@ -173,6 +173,92 @@ class LeaveCalculationService
     }
 
     /**
+     * Expected annual balance on 1 January of the NEXT year (rolling).
+     *
+     * RULE (user-confirmed 2026-11-01): the figure is always for
+     * 1 January of the year after the current year — in 2026 it is
+     * 1 January 2027, in 2027 the same code produces 1 January 2028,
+     * with no code change. Formula:
+     *
+     *   expected = visible balance today
+     *            + full-year entitlement of the CURRENT year
+     *
+     * The current year's USED days are NOT subtracted again: the visible
+     * balance already subtracts all approved annual days, including
+     * current-year ones (see visibleBalanceData()). The entitlement added
+     * here is the FULL year counted to 31 December (1.75 days per month
+     * worked in the year, capped at the employee's annual entitlement),
+     * not the to-date figure that stops at today — e.g. an employee who
+     * joined in January has 19.25 days to date in November but 21.00
+     * days for the full year. Both figures are returned so the screen
+     * can show the difference. Negative results are allowed and shown
+     * as-is, never floored at zero. Scope: ANNUAL leave only
+     * (code 'annual'), like the rest of this engine; used days are
+     * attributed by start_date year, so a leave spanning
+     * December–January counts in the year it starts.
+     *
+     * "Pending" / awaiting approval means a request whose status is
+     * 'pending' (awaiting HR), 'hr_approved' (awaiting manager/DM) or
+     * 'manager_approved' (enum value kept for filter/calendar
+     * compatibility; no transition in this codebase currently sets
+     * it, but a row in that state is not finally approved). Rejected
+     * and cancelled requests are never counted. Pending and
+     * next-year-approved figures are INFO ONLY: the headline
+     * expected_balance is approved-only.
+     */
+    public function expectedBalanceData(Employee $employee): array
+    {
+        $currentYear = Carbon::now()->year;
+        $nextYear = $currentYear + 1;
+        $joiningYear = Carbon::parse($employee->joining_date)->year;
+
+        $visible = $this->visibleBalanceData($employee);
+        $visibleBalance = (float) ($visible['visible_balance'] ?? 0);
+
+        if ($joiningYear > $currentYear) {
+            // Joined in a future year: no entitlement in the current year.
+            $fullEntitled = 0.0;
+            $toDateEntitled = 0.0;
+        } else {
+            $fullEntitled = $this->calculateDaysEntitledFullYear($employee, $currentYear);
+            $toDateEntitled = $this->calculateDaysEntitled($employee, $currentYear);
+        }
+
+        $currentYearUsed = $this->calculateDaysUsed($employee, $currentYear);
+        $pendingCurrentYear = $this->daysUsedByStatuses($employee, $currentYear, self::AWAITING_APPROVAL_STATUSES);
+        $pendingNextYear = $this->daysUsedByStatuses($employee, $nextYear, self::AWAITING_APPROVAL_STATUSES);
+        $approvedNextYearUsed = $this->calculateDaysUsed($employee, $nextYear);
+
+        $expected = round($visibleBalance + $fullEntitled, 2);
+
+        return [
+            'current_year' => $currentYear,
+            'next_year' => $nextYear,
+            'opens_on' => '1 January ' . $nextYear,
+            'visible_balance' => round($visibleBalance, 2),
+            'visible_entitled' => round((float) ($visible['visible_entitled'] ?? 0), 2),
+            'visible_used' => round((float) ($visible['visible_used'] ?? 0), 2),
+            'current_year_entitled_full' => round($fullEntitled, 2),
+            'current_year_entitled_to_date' => round($toDateEntitled, 2),
+            'current_year_used' => round($currentYearUsed, 2),
+            'pending_current_year' => round($pendingCurrentYear, 2),
+            'pending_next_year' => round($pendingNextYear, 2),
+            'approved_next_year_used' => round($approvedNextYearUsed, 2),
+            'expected_balance' => $expected,
+            'expected_if_pending_approved' => round($expected - $pendingCurrentYear, 2),
+            'expected_after_next_year_approved' => round($expected - $approvedNextYearUsed, 2),
+            'awaiting_approval_statuses' => self::AWAITING_APPROVAL_STATUSES,
+        ];
+    }
+
+    /**
+     * Statuses that mean "awaiting approval" (not finally approved,
+     * not rejected/cancelled). See expectedBalanceData() for the
+     * meaning of each value.
+     */
+    private const AWAITING_APPROVAL_STATUSES = ['pending', 'hr_approved', 'manager_approved'];
+
+    /**
      * Calculate months from hiring at end of a specific year
      * Excel: "Months From Hiring (Year)"
      *
@@ -181,8 +267,13 @@ class LeaveCalculationService
      *
      * Example: Hiring 2025-01-15, Year 2026 → months worked in 2026 = up to 12
      *          (from Jan 2026 to current month if current year, or to Dec)
+     *
+     * $asOf caps the count: callers that pass nothing keep the existing
+     * behaviour (min(year end, now)). Passing 31 December of the year
+     * counts the FULL year, which is what the expected-balance
+     * calculation needs.
      */
-    public function calculateMonthsAtYearEnd(Employee $employee, int $year): int
+    public function calculateMonthsAtYearEnd(Employee $employee, int $year, ?Carbon $asOf = null): int
     {
         $yearStart = Carbon::create($year, 1, 1)->startOfDay();
         $yearEnd = Carbon::create($year, 12, 31)->endOfDay();
@@ -197,7 +288,7 @@ class LeaveCalculationService
         $workStart = $joiningDate->lt($yearStart) ? $yearStart : $joiningDate;
 
         // Effective end is min(year end, now) for current year
-        $effectiveEnd = min($yearEnd, Carbon::now());
+        $effectiveEnd = min($yearEnd, $asOf ?? Carbon::now());
 
         if ($workStart->gt($effectiveEnd)) {
             return 0;
@@ -220,6 +311,70 @@ class LeaveCalculationService
         $months = $this->calculateMonthsAtYearEnd($employee, $year);
         $entitled = round(self::MONTHLY_ENTITLEMENT * $months, 2);
         return min($entitled, $employee->annual_leave_entitlement ?? 21);
+    }
+
+    /**
+     * Full-year entitlement for a year: 1.75 days per month worked
+     * counted to 31 December of that year (not to today), capped at
+     * the employee's annual entitlement. Used only by
+     * expectedBalanceData(); calculateDaysEntitled() (to-date) is
+     * unchanged for every existing caller.
+     */
+    private function calculateDaysEntitledFullYear(Employee $employee, int $year): float
+    {
+        $months = $this->calculateMonthsAtYearEnd(
+            $employee,
+            $year,
+            Carbon::create($year, 12, 31)->endOfDay()
+        );
+        $entitled = round(self::MONTHLY_ENTITLEMENT * $months, 2);
+        return min($entitled, $employee->annual_leave_entitlement ?? 21);
+    }
+
+    /**
+     * Awaiting-approval ANNUAL days grouped by start_date year.
+     * Same population as daysUsedByStatuses() with the awaiting-
+     * approval statuses (see expectedBalanceData()): 'pending',
+     * 'hr_approved', 'manager_approved'. One query, grouped in PHP
+     * (no SQL-dialect YEAR() assumption). Used by the expected-balance
+     * report's year-by-year detail so every year shows its own
+     * pending figure. Returns [year => total_days] (rounded, 2dp);
+     * years with no awaiting-approval leave are absent.
+     */
+    public function awaitingApprovalAnnualByYear(Employee $employee): array
+    {
+        $requests = LeaveRequest::where('employee_id', $employee->id)
+            ->whereIn('status', self::AWAITING_APPROVAL_STATUSES)
+            ->whereHas('leaveType', function ($q) {
+                $q->where('code', 'annual'); // ONLY annual leave affects balance
+            })
+            ->get(['start_date', 'total_days']);
+
+        $byYear = [];
+        foreach ($requests as $request) {
+            $year = (int) Carbon::parse($request->start_date)->year;
+            $byYear[$year] = round(($byYear[$year] ?? 0.0) + (float) $request->total_days, 2);
+        }
+
+        return $byYear;
+    }
+
+    /**
+     * Sum of ANNUAL leave days for a year in the given statuses.
+     * Same query shape as calculateDaysUsed() (annual only, attributed
+     * by start_date year); only the status filter differs.
+     */
+    private function daysUsedByStatuses(Employee $employee, int $year, array $statuses): float
+    {
+        $total = LeaveRequest::where('employee_id', $employee->id)
+            ->whereIn('status', $statuses)
+            ->whereYear('start_date', $year)
+            ->whereHas('leaveType', function ($q) {
+                $q->where('code', 'annual'); // ONLY annual leave affects balance
+            })
+            ->sum('total_days');
+
+        return (float) $total;
     }
 
     /**

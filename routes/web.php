@@ -83,6 +83,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/reports/employee', [App\Http\Controllers\ReportsController::class, 'employee'])->name('reports.employee');
         Route::get('/reports/leave-statistics', [App\Http\Controllers\ReportsController::class, 'leaveStatistics'])->name('reports.leave-statistics');
         Route::get('/reports/vacation-history', [App\Http\Controllers\ReportsController::class, 'vacationHistory'])->name('reports.vacation-history');
+        Route::get('/reports/expected-balance', [App\Http\Controllers\ReportsController::class, 'expectedBalance'])->name('reports.expected-balance');
         
         // Export Reports
         Route::get('/reports/export/leave-balance', [App\Http\Controllers\ReportsController::class, 'exportLeaveBalance'])->name('reports.export.leave-balance');

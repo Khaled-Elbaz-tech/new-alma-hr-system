@@ -148,6 +148,9 @@ class EmployeeController extends Controller
         // the current year's entitlement is hidden (null) and counts as 0
         // until 1 January of the next year.
         $visibleBalance = $leaveCalculationService->visibleBalanceData($employee);
+        // Expected balance on 1 January next year (rolling): visible
+        // balance today + the current year's full-year entitlement.
+        $expectedBalance = $leaveCalculationService->expectedBalanceData($employee);
         $visibleRows = collect($visibleBalance['rows'])->keyBy('year');
 
         $vacationHistory = [];
@@ -168,7 +171,7 @@ class EmployeeController extends Controller
         }
 
         $yearRequests = $this->yearRequests($employee);
-        return view('employees.show', compact('employee', 'vacationHistory', 'visibleBalance', 'yearRequests'));
+        return view('employees.show', compact('employee', 'vacationHistory', 'visibleBalance', 'expectedBalance', 'yearRequests'));
     }
 
     public function edit(Employee $employee)

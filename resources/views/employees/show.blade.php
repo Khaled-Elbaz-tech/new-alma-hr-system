@@ -257,6 +257,66 @@
         </div>
     </div>
 @endif
+@if(isset($expectedBalance))
+    <div class="card mb-3 border-primary">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-calendar-plus"></i> Expected Balance — 1 January {{ $expectedBalance['next_year'] }}</h5>
+        </div>
+        <div class="card-body">
+            <h2 class="{{ ($expectedBalance['expected_balance'] ?? 0) < 0 ? 'text-danger' : 'text-success' }} mb-1">
+                {{ number_format($expectedBalance['expected_balance'] ?? 0, 2) }} days
+            </h2>
+            <p class="text-muted">
+                This is the balance expected on <strong>{{ $expectedBalance['opens_on'] }}</strong>, when the {{ $expectedBalance['current_year'] }} annual entitlement opens automatically. It is the visible balance today plus the current year's full-year entitlement. Leave approved during the current year is already deducted in the visible balance, so it is not deducted again here.
+            </p>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm mb-0">
+                    <tbody>
+                        <tr>
+                            <td>Visible balance today</td>
+                            <td class="text-end">{{ number_format($expectedBalance['visible_balance'], 2) }} days</td>
+                        </tr>
+                        <tr>
+                            <td>{{ $expectedBalance['current_year'] }} entitlement (full year, to 31 December — opens {{ $expectedBalance['opens_on'] }})</td>
+                            <td class="text-end">+ {{ number_format($expectedBalance['current_year_entitled_full'], 2) }} days</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Expected balance on {{ $expectedBalance['opens_on'] }}</strong></td>
+                            <td class="text-end"><strong class="{{ ($expectedBalance['expected_balance'] ?? 0) < 0 ? 'text-danger' : 'text-success' }}">{{ number_format($expectedBalance['expected_balance'], 2) }} days</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-muted small mb-0 mt-2">
+                <i class="fas fa-info-circle"></i>
+                {{ $expectedBalance['current_year'] }} entitlement to date (up to today): {{ number_format($expectedBalance['current_year_entitled_to_date'], 2) }} days. Approved annual leave used in {{ $expectedBalance['current_year'] }}: {{ number_format($expectedBalance['current_year_used'], 2) }} days (already deducted in the visible balance above).
+            </p>
+            @if(($expectedBalance['pending_current_year'] ?? 0) > 0)
+            <p class="text-muted small mb-0 mt-2">
+                <i class="fas fa-hourglass-half"></i>
+                Awaiting approval for {{ $expectedBalance['current_year'] }}: {{ number_format($expectedBalance['pending_current_year'], 2) }} days. If all of it is approved, the expected balance would be {{ number_format($expectedBalance['expected_if_pending_approved'], 2) }} days.
+            </p>
+            @endif
+            @if(($expectedBalance['approved_next_year_used'] ?? 0) > 0)
+            <p class="text-muted small mb-0 mt-2">
+                <i class="fas fa-calendar-check"></i>
+                Already approved for {{ $expectedBalance['next_year'] }}: {{ number_format($expectedBalance['approved_next_year_used'], 2) }} days. After those, the balance would be {{ number_format($expectedBalance['expected_after_next_year_approved'], 2) }} days.
+            </p>
+            @endif
+            @if(($expectedBalance['pending_next_year'] ?? 0) > 0)
+            <p class="text-muted small mb-0 mt-2">
+                <i class="fas fa-hourglass-half"></i>
+                Awaiting approval for {{ $expectedBalance['next_year'] }}: {{ number_format($expectedBalance['pending_next_year'], 2) }} days (info only — not deducted from the expected balance above).
+            </p>
+            @endif
+            <p class="text-muted small mb-0 mt-2">
+                <i class="fas fa-info-circle"></i>
+                Annual leave only. Entitlement is counted to 31 December (1.75 days per month worked, capped at the employee's annual entitlement). A leave spanning December–January counts in the year it starts, per the existing calculation. A negative balance is shown as-is and is never floored at zero.
+                <a href="{{ route('reports.expected-balance') }}">View the expected-balance report for all employees</a>.
+            </p>
+        </div>
+    </div>
+@endif
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-calendar-check"></i> Leave Balance (Yearly View)</h5>

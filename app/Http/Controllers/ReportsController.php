@@ -346,6 +346,89 @@ class ReportsController extends Controller
         ));
     }
 
+    // Expected Balance Report — balance each employee is expected to
+    // hold on 1 January of the next year (rolling; see
+    // LeaveCalculationService::expectedBalanceData()). One service call
+    // per employee, the same per-employee path the employee show page
+    // uses. Scope copies EmployeeController::index()'s base query:
+    // all employees except soft-deleted ones (SoftDeletes global
+    // scope); no employment_status filter is invented here. Default
+    // sort: expected balance ascending, then employee name. No export,
+    // no filters.
+    //
+    // Each employee also gets year-by-year detail rows (joining year
+    // through the current year, from visibleBalanceData()): closed
+    // years show their entitled figure and the running visible
+    // balance; the current-year row shows the FULL-year entitlement
+    // (opens 1 January next year) with BOTH the visible running
+    // figure (Remaining) and the expected figure (Expected
+    // Remaining) kept distinct. A booked-only next-year row is added
+    // only when the employee has approved annual leave starting in
+    // the next year. Pending figures per year come from
+    // awaitingApprovalAnnualByYear() (same awaiting-approval status
+    // set as expectedBalanceData()).
+    public function expectedBalance(Request $request)
+    {
+        $currentYear = Carbon::now()->year;
+        $nextYear = $currentYear + 1;
+
+        $employees = Employee::with(['user', 'department'])->get();
+
+        $rows = [];
+        foreach ($employees as $emp) {
+            $expected = $this->leaveCalculationService->expectedBalanceData($emp);
+            $visible = $this->leaveCalculationService->visibleBalanceData($emp);
+            $pendingByYear = $this->leaveCalculationService->awaitingApprovalAnnualByYear($emp);
+
+            $detailRows = [];
+            foreach (($visible['rows'] ?? []) as $vRow) {
+                $year = (int) $vRow['year'];
+                $isCurrent = (bool) ($vRow['is_current'] ?? false);
+                $detailRows[] = [
+                    'kind' => $isCurrent ? 'current' : 'closed',
+                    'year_label' => (string) $year . ($isCurrent ? ' (current year)' : ''),
+                    'entitled' => $isCurrent ? (float) $expected['current_year_entitled_full'] : $vRow['entitled'],
+                    'entitled_note' => $isCurrent ? ('opens 1 January ' . $nextYear) : null,
+                    'used' => (float) $vRow['used'],
+                    'pending' => (float) ($pendingByYear[$year] ?? 0.0),
+                    'remaining' => (float) $vRow['remaining'],
+                    'remaining_note' => $isCurrent ? 'visible today' : null,
+                    'expected_remaining' => $isCurrent ? (float) $expected['expected_balance'] : null,
+                ];
+            }
+
+            if ((float) $expected['approved_next_year_used'] > 0) {
+                $detailRows[] = [
+                    'kind' => 'next_booked',
+                    'year_label' => (string) $nextYear . ' (booked only)',
+                    'entitled' => null,
+                    'entitled_note' => null,
+                    'used' => (float) $expected['approved_next_year_used'],
+                    'pending' => (float) ($pendingByYear[$nextYear] ?? 0.0),
+                    'remaining' => (float) $expected['expected_after_next_year_approved'],
+                    'remaining_note' => 'expected after booked leave',
+                    'expected_remaining' => null,
+                ];
+            }
+
+            $rows[] = [
+                'employee' => $emp,
+                'expected' => $expected,
+                'detail_rows' => $detailRows,
+            ];
+        }
+
+        usort($rows, function ($a, $b) {
+            $cmp = $a['expected']['expected_balance'] <=> $b['expected']['expected_balance'];
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            return strcmp($a['employee']->user->name ?? '', $b['employee']->user->name ?? '');
+        });
+
+        return view('reports.expected-balance', compact('rows', 'currentYear', 'nextYear'));
+    }
+
     // Leave History Report
     public function leaveHistory(Request $request)
     {

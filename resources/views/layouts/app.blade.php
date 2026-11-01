@@ -155,6 +155,9 @@
                         <a href="{{ route('reports.leave-balance') }}">
                             <i class="fas fa-chart-bar"></i> Leave Balance
                         </a>
+                        <a href="{{ route('reports.expected-balance') }}">
+                            <i class="fas fa-calendar-plus"></i> Expected Balance
+                        </a>
                         <a href="{{ route('reports.leave-history') }}">
                             <i class="fas fa-history"></i> Leave History
                         </a>
