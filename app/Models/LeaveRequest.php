@@ -105,4 +105,35 @@ class LeaveRequest extends Model
     {
         return $this->status === 'hr_approved' && in_array($this->employee?->user?->role?->name, ['manager', 'dm']);
     }
+
+    /**
+     * HR-step waiver (sole-HR deadlock fix): the HR step is waived for
+     * leaves whose requester is HR staff (role 'hr_manager' or
+     * 'super_admin'). Such leaves go from 'pending' straight to the
+     * manager-approve step — the HR step must never be required for
+     * them, and no actor may perform it for them (see hrApprove()).
+     * Role-based only; applies to ALL HR/super_admin requesters, not
+     * only when there is a single HR user. Null-safe: a missing
+     * employee/user/role chain means the waiver cannot apply.
+     */
+    public function skipsHRStep(): bool
+    {
+        return in_array($this->employee?->user?->role?->name, ['hr_manager', 'super_admin'], true);
+    }
+
+    /**
+     * Role-only DM check: whether the requester's role requires the DM
+     * final step, regardless of the current status. Unlike
+     * needsDMApproval() (which also requires status 'hr_approved'),
+     * this is usable on the pending-HR path, where the row has not
+     * been HR-approved (and never will be — the HR step is waived).
+     * With one role per user an HR-staff requester can never also be
+     * a manager/dm, so this is false for every skipsHRStep() row
+     * today; the check exists so the manager-approve path never
+     * assumes that.
+     */
+    public function needsDMApprovalByRole(): bool
+    {
+        return in_array($this->employee?->user?->role?->name, ['manager', 'dm'], true);
+    }
 }

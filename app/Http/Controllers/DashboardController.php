@@ -182,22 +182,40 @@ class DashboardController extends Controller
                 
                 // Pending approvals (awaiting HR — shown read-only on
                 // the dashboard; they are NOT manager-actionable yet).
+                // HR-staff pending rows are excluded: their HR step is
+                // waived (skipsHRStep()), so they do not await HR and
+                // appear in $hrApprovedLeaves below instead.
                 $pendingApprovals = LeaveRequest::whereIn('employee_id', $teamEmployeeIds)
                     ->where('status', 'pending')
-                    ->with(['employee.user', 'leaveType'])
+                    ->whereDoesntHave('employee.user.role', function ($q) {
+                        $q->whereIn('name', ['hr_manager', 'super_admin']);
+                    })
+                    ->with(['employee.user.role', 'leaveType'])
                     ->orderBy('start_date')
                     ->get();
                 $pendingCount = $pendingApprovals->count();
 
                 // HR-approved approvals (dashboard visibility): rows HR
-                // has approved that now await the manager/DM step. Same
+                // has approved that now await the manager/DM step, PLUS
+                // pending HR-staff rows whose HR step is waived — they
+                // go directly to manager approval and must not vanish
+                // from the dashboard (sole-HR deadlock fix). Same
                 // department scope as $pendingApprovals above (the
                 // managed department only — never other departments).
-                // Pending rows are NOT included (they await HR, not the
-                // manager) and approved/rejected rows are NOT included.
+                // Other pending rows are NOT included (they await HR,
+                // not the manager) and approved/rejected rows are NOT
+                // included.
                 $hrApprovedLeaves = LeaveRequest::whereIn('employee_id', $teamEmployeeIds)
-                    ->where('status', 'hr_approved')
-                    ->with(['employee.user', 'leaveType'])
+                    ->where(function ($q) {
+                        $q->where('status', 'hr_approved')
+                            ->orWhere(function ($q2) {
+                                $q2->where('status', 'pending')
+                                    ->whereHas('employee.user.role', function ($q3) {
+                                        $q3->whereIn('name', ['hr_manager', 'super_admin']);
+                                    });
+                            });
+                    })
+                    ->with(['employee.user.role', 'leaveType'])
                     ->orderBy('start_date')
                     ->get();
 

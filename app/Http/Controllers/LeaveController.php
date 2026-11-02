@@ -1053,6 +1053,17 @@ class LeaveController extends Controller
             abort(403, 'Unauthorized.');
         }
 
+        // HR-step waiver: HR-staff leaves skip the HR step entirely and
+        // go directly to manager approval. This applies to ANY actor —
+        // including a different HR user — and deliberately does NOT
+        // call abortIfOwnLeave(): the sole-HR deadlock was a 403 here
+        // with no alternative path. The row is left untouched (still
+        // 'pending') and no HR stamp is faked. Visible 'error' flash
+        // (session('info') is invisible in the layout).
+        if ($leave->skipsHRStep()) {
+            return back()->with('error', 'HR staff leave requests skip the HR step and go directly to manager approval. Please use the manager approval action instead.');
+        }
+
         // B2(a): no actor may approve their own leave at either step.
         $this->abortIfOwnLeave($leave);
 
@@ -1103,8 +1114,8 @@ class LeaveController extends Controller
      * transactions, as in hrApprove().
      *
      * B4: two-step DM distinction on this EXISTING route (no new route).
-     * The requester's role — via the null-safe model helpers
-     * needsDMApproval() (same population as canBeApprovedByDM()) —
+     * The requester's role — via the null-safe model helper
+     * needsDMApprovalByRole() —
      * decides the path from hr_approved: plain 'employee' requesters go
      * straight to 'approved'; 'manager'/'dm' requesters first go to
      * 'manager_approved' (any actor allowed by the role group + scope +
@@ -1116,6 +1127,14 @@ class LeaveController extends Controller
      * finaliser is recorded in the ActivityLog only: no dm_* columns
      * exist and no migration is allowed, so the manager_* stamps (first
      * step) are left untouched by the DM step.
+     *
+     * HR-step waiver: a 'pending' row is also accepted here when
+     * skipsHRStep() is true (requester is HR staff). Such rows never
+     * pass through hrApprove(), so the HR step is skipped at
+     * approve time — no HR stamp is faked and no row is backfilled.
+     * All other guards (role group, department scope, own-leave ban)
+     * still apply; the same-actor check is skipped only because a
+     * pending HR row has no HR stamp to compare against.
      */
     public function managerApprove(Request $request, LeaveRequest $leave)
     {
@@ -1140,10 +1159,13 @@ class LeaveController extends Controller
         if ($leave->status === 'cancelled') {
             return back()->with('error', 'This leave request has been cancelled and cannot be approved.');
         }
-        if ($leave->status === 'pending') {
+        // HR-step waiver: 'pending' is accepted ONLY for HR-staff
+        // requesters (skipsHRStep()). Every other pending row must
+        // still be HR approved first.
+        if ($leave->status === 'pending' && !$leave->skipsHRStep()) {
             return back()->with('error', 'Leave request must be HR approved first.');
         }
-        if (!in_array($leave->status, ['hr_approved', 'manager_approved'], true)) {
+        if (!in_array($leave->status, ['pending', 'hr_approved', 'manager_approved'], true)) {
             return back()->with('error', 'Leave request must be HR approved first.');
         }
 
@@ -1189,25 +1211,32 @@ class LeaveController extends Controller
             return back()->with('success', 'Leave request fully approved.');
         }
 
-        // hr_approved step.
+        // hr_approved step (or pending HR-staff step — HR step waived).
         // B2(b): the actor who did the HR step may not do this step.
+        // Only checked when an HR stamp exists: a pending HR row has
+        // none (the HR step was waived, never performed).
         // B6: hr_approved_by stores a USER id going forward; legacy rows
         // stored an employee id and cannot be trusted for this comparison.
-        if (Auth::id() === (int) $leave->hr_approved_by) {
+        if ($leave->status === 'hr_approved' && Auth::id() === (int) $leave->hr_approved_by) {
             abort(403, 'You approved this request at the HR step, so a different approver must complete the next step.');
         }
 
         // B4: manager/DM requesters need the DM step (manager_approved);
         // plain employees — and rows with no requester role chain — finish
-        // here (approved). needsManagerApproval() is the complement of
-        // this check for the employee path.
-        $needsDM = $leave->needsDMApproval();
+        // here (approved). Role-only check: needsDMApproval() also
+        // requires status 'hr_approved', which a waived pending row
+        // never has.
+        $needsDM = $leave->needsDMApprovalByRole();
         $targetStatus = $needsDM ? 'manager_approved' : 'approved';
 
+        // The conditional update must match the status the row actually
+        // entered this step with: 'pending' for waived HR rows,
+        // 'hr_approved' for every other row.
         $oldStatus = $leave->status;
-        $affected = DB::transaction(function () use ($leave, $request, $targetStatus) {
+        $expectedStatus = $oldStatus;
+        $affected = DB::transaction(function () use ($leave, $request, $targetStatus, $expectedStatus) {
             return LeaveRequest::where('id', $leave->id)
-                ->where('status', 'hr_approved')
+                ->where('status', $expectedStatus)
                 ->update([
                     'status' => $targetStatus,
                     'manager_approved_by' => Auth::id(),
@@ -1233,8 +1262,8 @@ class LeaveController extends Controller
             'model_type' => LeaveRequest::class,
             'model_id' => $leave->id,
             'description' => $needsDM
-                ? "Leave request manager approved (was {$oldStatus}; awaiting DM final approval)"
-                : "Leave request manager approved (was {$oldStatus})",
+                ? "Leave request manager approved (was {$oldStatus}; awaiting DM final approval)" . ($oldStatus === 'pending' ? ' — HR step waived' : '')
+                : "Leave request manager approved (was {$oldStatus})" . ($oldStatus === 'pending' ? ' — HR step waived' : ''),
             'ip_address' => $request->ip(),
         ]);
 
@@ -1525,7 +1554,9 @@ class LeaveController extends Controller
             abort(403);
         }
 
-        $query = LeaveRequest::with(['employee.user', 'leaveType'])
+        // 'employee.user.role' is eager-loaded so skipsHRStep() in
+        // the view does not lazy-load a role per row.
+        $query = LeaveRequest::with(['employee.user.role', 'leaveType'])
             ->orderBy('created_at', 'desc');
 
         // Filter by department for manager/dm

@@ -90,9 +90,12 @@
                                     @else {{ ucfirst($leave->status) }}
                                     @endif
                                 </span>
+                                @if($leave->status === 'pending' && $leave->skipsHRStep())
+                                    <span class="badge bg-secondary ms-1">HR step waived</span>
+                                @endif
                             </td>
                             <td>
-                                @if($leave->status === 'hr_approved')
+                                @if($leave->status === 'hr_approved' || ($leave->status === 'pending' && $leave->skipsHRStep()))
                                     <form action="{{ route('leaves.manager-approve', $leave) }}" method="POST" class="d-inline" onsubmit="if(!confirm('Approve this leave request?')) return false; this.querySelector('button[type=submit]').disabled=true;">
                                         @csrf
                                         <button type="submit" class="btn btn-sm btn-success">

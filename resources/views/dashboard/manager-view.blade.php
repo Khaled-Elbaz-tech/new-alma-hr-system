@@ -90,7 +90,11 @@
                                 <div class="d-flex justify-content-between align-items-start">
                                     <div>
                                         <strong>{{ $leave->employee->user->name }}</strong>
-                                        <span class="badge bg-info ms-2">HR Approved</span>
+                                        @if($leave->status === 'pending' && $leave->skipsHRStep())
+                                            <span class="badge bg-secondary ms-2">HR staff &mdash; HR step waived</span>
+                                        @else
+                                            <span class="badge bg-info ms-2">HR Approved</span>
+                                        @endif
                                         <br>
                                         <small class="text-muted">
                                             {{ $leave->leaveType->name }} |
@@ -140,7 +144,7 @@
                         @endforeach
                     </div>
                 @else
-                    <p class="text-muted">No requests are waiting for your approval. Requests appear here as soon as HR approves them.</p>
+                    <p class="text-muted">No requests are waiting for your approval. Requests appear here as soon as HR approves them, or immediately for HR staff requests (HR step waived).</p>
                 @endif
 
                 @if(auth()->user()->isDM())
