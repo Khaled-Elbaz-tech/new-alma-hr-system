@@ -209,7 +209,13 @@ class DynamicFormController extends Controller
 
         // employee_can_view is enforced for plain-employee viewers (own record only,
         // per the authorization above): fields flagged not employee-viewable are hidden.
-        if ($user->isEmployee()) {
+        // Manager/DM self-service: when a manager/dm views their OWN record, the same
+        // filter applies — otherwise a manager viewing their own fields would see
+        // fields flagged not employee-viewable, which a plain employee never sees.
+        // Managers viewing a team member's record keep the department-scoped,
+        // unfiltered view (manager's HR-adjacent view, as before).
+        $ownRecord = $user->employee;
+        if ($user->isEmployee() || ($ownRecord && $ownRecord->id === $employee->id)) {
             $fieldsQuery->where('employee_can_view', true);
         }
 
@@ -224,20 +230,22 @@ class DynamicFormController extends Controller
     {
         $user = auth()->user();
 
-        // Check permissions: HR/Super Admin can download any, employee can only download their own
+        // Check permissions: HR/Super Admin can download any. Anyone else —
+        // plain employee, manager, or DM — may download ONLY their own
+        // employee record's attachments. Previously the else branch aborted
+        // 403 for manager/dm even for their OWN files, so a department
+        // manager had no working way to download their own documents.
+        // A manager viewing a team member's files via employeeFields still
+        // cannot download that member's attachments here (own-record only).
         if (!$user->isHrManager() && !$user->isSuperAdmin()) {
-            if ($user->isEmployee()) {
-                $employeeUser = $user->employee;
-                if (!$employeeUser || $employeeUser->id !== $fieldValue->employee_id) {
-                    abort(403, 'Unauthorized to access this file.');
-                }
-                // H3-adjacent: an employee may not download an attachment for a field
-                // the field definition marks as not employee-viewable.
-                $field = $fieldValue->field;
-                if ($field && !$field->employee_can_view) {
-                    abort(403, 'Unauthorized to access this file.');
-                }
-            } else {
+            $employeeUser = $user->employee;
+            if (!$employeeUser || $employeeUser->id !== $fieldValue->employee_id) {
+                abort(403, 'Unauthorized to access this file.');
+            }
+            // H3-adjacent: a person may not download an attachment for a field
+            // the field definition marks as not employee-viewable.
+            $field = $fieldValue->field;
+            if ($field && !$field->employee_can_view) {
                 abort(403, 'Unauthorized to access this file.');
             }
         }
@@ -288,7 +296,11 @@ class DynamicFormController extends Controller
         $canEdit = false;
         if ($user->isHrManager() || $user->isSuperAdmin()) {
             $canEdit = true;
-        } elseif ($user->isEmployee()) {
+        } elseif ($user->isEmployee() || $user->isManager() || $user->isDM()) {
+            // Self-service: a manager/dm is also an employee and may edit
+            // ONLY their own record (per-field employee_can_edit is enforced
+            // below, exactly as for plain employees). Team members' records
+            // stay read-only for managers here.
             $employeeUser = $user->employee;
             if ($employeeUser && $employeeUser->id === $employee->id) {
                 // Check if employee can edit

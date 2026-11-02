@@ -182,6 +182,19 @@
                         <a href="{{ route('leaves.manager.index') }}" class="{{ request()->routeIs('leaves.manager*') ? 'active' : '' }}">
                             <i class="fas fa-calendar"></i> Leave Requests
                         </a>
+                        {{-- Manager/DM self-service: a manager is also an employee
+                             (own employee record). These routes are auth-only and
+                             the controllers enforce own-record ownership, so the
+                             links use the same pattern as the plain-employee
+                             sidebar. The HR-only Documents list is deliberately
+                             NOT linked here; a manager's own files live on
+                             My Profile (Dynamic Fields tab). --}}
+                        <a href="{{ route('leaves.my') }}" class="{{ request()->routeIs('leaves.my') ? 'active' : '' }}">
+                            <i class="fas fa-calendar-minus"></i> My Leaves
+                        </a>
+                        <a href="{{ route('employees.my-profile') }}" class="{{ request()->routeIs('employees.my-profile') ? 'active' : '' }}">
+                            <i class="fas fa-user"></i> My Profile
+                        </a>
                     @endif
                     
                     @if(auth()->user()->isSuperAdmin())
@@ -217,12 +230,18 @@
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h4>@yield('page-title', 'Dashboard')</h4>
                     <div class="d-flex align-items-center gap-3">
+                        {{-- The search posts to employees.index, an HR-only route:
+                             managers/DMs submitting it got a 403, so it is only
+                             shown to HR/super_admin. Managers search their team
+                             from My Team instead. --}}
+                        @if(auth()->user()->isHrManager() || auth()->user()->isSuperAdmin())
                         <form action="{{ route('employees.index') }}" method="GET" class="d-flex" style="max-width: 280px;">
                             <div class="input-group input-group-sm">
                                 <input type="text" name="search" class="form-control" placeholder="Search employees..." value="{{ request('search') }}">
                                 <button class="btn btn-outline-secondary" type="submit"><i class="fas fa-search"></i></button>
                             </div>
                         </form>
+                        @endif
                         <span>Welcome, {{ auth()->user()->name }}</span>
                         <span class="badge bg-primary">{{ auth()->user()->role->display_name ?? 'User' }}</span>
                     </div>
