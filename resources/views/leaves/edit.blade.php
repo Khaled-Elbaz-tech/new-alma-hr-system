@@ -24,6 +24,11 @@
                     @endif
                 </div>
 
+                @if($errors->any())
+    <div class="alert alert-danger">
+        <i class="fas fa-exclamation-circle me-2"></i>{{ $errors->first() }}
+    </div>
+@endif
                 <form method="POST" action="{{ route('leaves.update', $leave) }}" id="editLeaveForm">
                     @csrf
                     @method('PUT')

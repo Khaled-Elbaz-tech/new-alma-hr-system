@@ -93,15 +93,27 @@
                             </td>
                             <td>
                                 @if($leave->status === 'hr_approved')
-                                    <form action="{{ route('leaves.manager-approve', $leave) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('leaves.manager-approve', $leave) }}" method="POST" class="d-inline" onsubmit="if(!confirm('Approve this leave request?')) return false; this.querySelector('button[type=submit]').disabled=true;">
                                         @csrf
-                                        <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Approve this leave request?')">
+                                        <button type="submit" class="btn btn-sm btn-success">
                                             Approve
                                         </button>
                                     </form>
                                     <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#rejectModal{{ $leave->id }}">
                                         Reject
                                     </button>
+                                @elseif($leave->status === 'pending')
+                                    <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#rejectModal{{ $leave->id }}">
+                                        Reject
+                                    </button>
+                                    <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#viewModal{{ $leave->id }}">View</button>
+                                @elseif($leave->status === 'manager_approved' && auth()->user()->isDM())
+                                    <form action="{{ route('leaves.manager-approve', $leave) }}" method="POST" class="d-inline" onsubmit="if(!confirm('Give final DM approval to this leave request?')) return false; this.querySelector('button[type=submit]').disabled=true;">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-success">
+                                            DM Approve
+                                        </button>
+                                    </form>
                                 @else
                                     <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#viewModal{{ $leave->id }}">View</button>
                                 @endif
@@ -143,9 +155,14 @@
                                                 <h5 class="modal-title">Reject Leave Request</h5>
                                                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                             </div>
-                                            <form action="{{ route('leaves.reject', $leave) }}" method="POST">
+                                            <form action="{{ route('leaves.reject', $leave) }}" method="POST" onsubmit="this.querySelector('button[type=submit]').disabled=true;">
                                                 @csrf
                                                 <div class="modal-body">
+                                                    @if($errors->any())
+    <div class="alert alert-danger">
+        <i class="fas fa-exclamation-circle me-2"></i>{{ $errors->first() }}
+    </div>
+@endif
                                                     <div class="mb-3">
                                                         <label class="form-label">Rejection Reason</label>
                                                         <textarea name="rejection_reason" class="form-control" required></textarea>

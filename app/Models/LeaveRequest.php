@@ -90,17 +90,19 @@ class LeaveRequest extends Model
 
     public function canBeApprovedByDM(): bool
     {
-        // DM approves after HR for Manager/DM leave requests
-        return $this->status === 'hr_approved' && in_array($this->employee->user->role->name, ['manager', 'dm']);
+        // DM approves after HR for Manager/DM leave requests.
+        // Null-safe (B4): a missing employee/user/role chain means the
+        // DM split cannot apply, never a 500.
+        return $this->status === 'hr_approved' && in_array($this->employee?->user?->role?->name, ['manager', 'dm']);
     }
 
     public function needsManagerApproval(): bool
     {
-        return $this->status === 'hr_approved' && in_array($this->employee->user->role->name, ['employee']);
+        return $this->status === 'hr_approved' && in_array($this->employee?->user?->role?->name, ['employee']);
     }
 
     public function needsDMApproval(): bool
     {
-        return $this->status === 'hr_approved' && in_array($this->employee->user->role->name, ['manager', 'dm']);
+        return $this->status === 'hr_approved' && in_array($this->employee?->user?->role?->name, ['manager', 'dm']);
     }
 }

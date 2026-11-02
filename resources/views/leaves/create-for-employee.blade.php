@@ -123,6 +123,11 @@
                 <h5 class="mb-0"><i class="fas fa-calendar-alt"></i> Leave Request Details</h5>
             </div>
             <div class="card-body">
+                @if($errors->any())
+    <div class="alert alert-danger">
+        <i class="fas fa-exclamation-circle me-2"></i>{{ $errors->first() }}
+    </div>
+@endif
                 <form method="POST" action="{{ route('leaves.store-for-employee') }}" id="leaveForm">
                     @csrf
                     <input type="hidden" name="employee_id" id="employeeIdInput" required>
@@ -270,7 +275,7 @@
                     </div>
 
                     <div class="alert alert-info">
-                        <i class="fas fa-info-circle"></i> This leave will be created as approved immediately.
+                        <i class="fas fa-info-circle"></i> This leave will be created as approved immediately, unless it is your own leave &mdash; your own leave is created as pending and goes through the approval workflow.
                     </div>
 
                     <div class="d-flex justify-content-between">

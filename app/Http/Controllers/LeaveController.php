@@ -446,7 +446,51 @@ class LeaveController extends Controller
     }
 
     /**
+     * Driver-aware YEAR() / MONTH() expressions for grouped queries.
+     *
+     * Production runs MySQL, where YEAR(col) / MONTH(col) are native.
+     * Local development may run SQLite, which has no YEAR() function
+     * (it 500s with "no such function: YEAR"), so SQLite uses
+     * strftime() cast back to integer. PostgreSQL uses EXTRACT()
+     * (standard SQL, not exercised locally). SQL Server also has
+     * YEAR() / MONTH(), so it takes the default branch. The returned
+     * values are integers on every driver, and the MySQL SQL is
+     * unchanged, so MySQL results do not change.
+     *
+     * $column is a bare or table-qualified column name, e.g.
+     * 'start_date' or 'leave_requests.start_date'.
+     *
+     * Copied verbatim from ReportsController (B4/SQLite fix round).
+     * Only monthExpression() is used below (dashboard()); yearExpression()
+     * is kept for parity so the pair never drifts apart.
+     */
+    protected function yearExpression(string $column): string
+    {
+        return match (DB::connection()->getDriverName()) {
+            'sqlite' => "CAST(strftime('%Y', {$column}) AS INTEGER)",
+            'pgsql' => "EXTRACT(YEAR FROM {$column})",
+            default => "YEAR({$column})",
+        };
+    }
+
+    protected function monthExpression(string $column): string
+    {
+        return match (DB::connection()->getDriverName()) {
+            'sqlite' => "CAST(strftime('%m', {$column}) AS INTEGER)",
+            'pgsql' => "EXTRACT(MONTH FROM {$column})",
+            default => "MONTH({$column})",
+        };
+    }
+
+    /**
      * Show leave statistics/dashboard
+     *
+     * DEAD / UNREACHABLE (documented, not revived): no route points at
+     * this method and no leaves.dashboard view exists. It is kept only
+     * so the SQLite-unsafe MONTH() it contained is fixed in place
+     * (driver-aware monthExpression() above) rather than left as a trap
+     * for any future wiring. Do not add a route or view for it without
+     * a separate decision.
      */
     public function dashboard()
     {
@@ -482,14 +526,13 @@ class LeaveController extends Controller
             ->orderBy('count', 'desc')
             ->get();
 
-        // Monthly trend
-        $monthlyStats = LeaveRequest::selectRaw('
-                MONTH(start_date) as month,
-                COUNT(*) as count,
-                SUM(CASE WHEN status = "approved" THEN 1 ELSE 0 END) as approved_count
-            ')
+        // Monthly trend (driver-aware: MONTH() is SQLite-unsafe raw).
+        $monthlyStats = LeaveRequest::selectRaw(
+                $this->monthExpression('start_date') . ' as month, COUNT(*) as count, '
+                . 'SUM(CASE WHEN status = "approved" THEN 1 ELSE 0 END) as approved_count'
+            )
             ->whereYear('start_date', $currentYear)
-            ->groupBy(DB::raw('MONTH(start_date)'))
+            ->groupBy(DB::raw($this->monthExpression('start_date')))
             ->orderBy('month')
             ->get()
             ->mapWithKeys(function ($item) {
@@ -668,15 +711,23 @@ class LeaveController extends Controller
     /**
      * Leave-clarity (Task 1): apply the HR/admin request edit. Days are
      * recomputed from the CURRENT weekend settings + holidays, exactly
-     * like storeLeave. Any status may be edited; because balances are
-     * computed dynamically from requests, editing an approved request
-     * corrects that employee's balance automatically — no manual
-     * adjustment, and no status/employee change is accepted here.
+     * like storeLeave. Approved and rejected requests cannot be edited
+     * (B3 guard below); pending/hr_approved/manager_approved requests
+     * may be edited, because balances are computed dynamically from
+     * requests — no manual adjustment, and no status/employee change
+     * is accepted here. There is no reversal/correction flow for
+     * approved or rejected requests.
      */
     public function update(Request $request, LeaveRequest $leave)
     {
         if (!Auth::user()->hasAnyRole(['super_admin', 'hr_manager'])) {
             abort(403);
+        }
+
+        // B3: approved/rejected requests are final for editing. No
+        // correction flow exists — return an honest error instead.
+        if (in_array($leave->status, ['approved', 'rejected'], true)) {
+            return back()->with('error', 'Approved or rejected leave requests cannot be edited.');
         }
 
         $request->validate([
@@ -697,7 +748,7 @@ class LeaveController extends Controller
         $conflict = LeaveRequest::with('leaveType')
             ->where('employee_id', $leave->employee_id)
             ->where('id', '!=', $leave->id)
-            ->whereIn('status', ['pending', 'hr_approved', 'approved'])
+            ->whereIn('status', ['pending', 'hr_approved', 'manager_approved', 'approved'])
             ->where('start_date', '<=', $request->end_date)
             ->where('end_date', '>=', $request->start_date)
             ->orderBy('start_date')
@@ -745,6 +796,12 @@ class LeaveController extends Controller
     {
         if (!Auth::user()->hasAnyRole(['super_admin', 'hr_manager'])) {
             abort(403);
+        }
+
+        // B3: approved/rejected requests cannot be deleted. No
+        // correction flow exists — return an honest error instead.
+        if (in_array($leave->status, ['approved', 'rejected'], true)) {
+            return back()->with('error', 'Approved or rejected leave requests cannot be deleted.');
         }
 
         // Capture details BEFORE deleting, for the audit trail.
@@ -938,6 +995,13 @@ class LeaveController extends Controller
         // balance goes negative — they deduct from the carried balance of
         // closed years (see LeaveCalculationService::visibleBalanceData()).
 
+        // B2(c): HR creating leave for OTHER employees stores it approved
+        // as before. HR creating their OWN leave stores it pending so it
+        // goes through the approval workflow (no self-approval), with no
+        // HR-approval stamps. B6: approver stamps store the USER id.
+        $isOwnLeave = Auth::user()->employee?->id !== null
+            && (int) Auth::user()->employee->id === (int) $employee->id;
+
         // Create leave request
         $leaveRequest = LeaveRequest::create([
             'employee_id' => $employee->id,
@@ -952,9 +1016,9 @@ class LeaveController extends Controller
             'exit_reentry_required' => $request->boolean('exit_reentry_required', false),
             'hotel_booking_required' => $request->boolean('hotel_booking_required', false),
             'transfer_required' => $request->boolean('transfer_required', false),
-            'status' => 'approved',
-            'hr_approved_by' => Auth::user()->employee?->id,
-            'hr_approved_at' => now(),
+            'status' => $isOwnLeave ? 'pending' : 'approved',
+            'hr_approved_by' => $isOwnLeave ? null : Auth::id(),
+            'hr_approved_at' => $isOwnLeave ? null : now(),
             'created_by' => Auth::id(),
         ]);
 
@@ -969,7 +1033,9 @@ class LeaveController extends Controller
         ]);
 
         return redirect()->route('leaves.index')
-            ->with('success', 'Leave request created successfully.');
+            ->with('success', $isOwnLeave
+                ? 'Leave request created as pending. Your own leave must go through the approval workflow.'
+                : 'Leave request created successfully.');
     }
 
     /**
@@ -987,6 +1053,9 @@ class LeaveController extends Controller
             abort(403, 'Unauthorized.');
         }
 
+        // B2(a): no actor may approve their own leave at either step.
+        $this->abortIfOwnLeave($leave);
+
         if ($leave->status !== 'pending') {
             return back()->with('error', 'Leave request already processed.');
         }
@@ -997,7 +1066,7 @@ class LeaveController extends Controller
                 ->where('status', 'pending')
                 ->update([
                     'status' => 'hr_approved',
-                    'hr_approved_by' => Auth::user()->employee?->id,
+                    'hr_approved_by' => Auth::id(),
                     'hr_approved_at' => now(),
                     'hr_comments' => $request->hr_comments ?? null,
                 ]);
@@ -1030,8 +1099,23 @@ class LeaveController extends Controller
      * Manager approves leave request
      * M1: manager/dm actors must belong to the leave employee's department
      * (via their managedDepartment); super_admin/hr_manager are exempt.
-     * M10/WF-06: conditional update (WHERE status = 'hr_approved') inside a
-     * DB transaction, as in hrApprove().
+     * M10/WF-06: conditional updates (WHERE status = ...) inside DB
+     * transactions, as in hrApprove().
+     *
+     * B4: two-step DM distinction on this EXISTING route (no new route).
+     * The requester's role — via the null-safe model helpers
+     * needsDMApproval() (same population as canBeApprovedByDM()) —
+     * decides the path from hr_approved: plain 'employee' requesters go
+     * straight to 'approved'; 'manager'/'dm' requesters first go to
+     * 'manager_approved' (any actor allowed by the role group + scope +
+     * B2 checks), and only a DM who did neither earlier step may then
+     * finalise 'manager_approved' -> 'approved'. HR/super_admin do NOT
+     * bypass the DM-only second step. B2: no actor may approve their
+     * own leave, and the actor who did the HR step may not do the next
+     * step (approver identities are USER ids — see B6). The DM
+     * finaliser is recorded in the ActivityLog only: no dm_* columns
+     * exist and no migration is allowed, so the manager_* stamps (first
+     * step) are left untouched by the DM step.
      */
     public function managerApprove(Request $request, LeaveRequest $leave)
     {
@@ -1041,24 +1125,99 @@ class LeaveController extends Controller
 
         $this->assertManagerDepartmentScope($leave);
 
-        if ($leave->status !== 'hr_approved') {
+        // B2(a): no actor may approve their own leave at either step.
+        $this->abortIfOwnLeave($leave);
+
+        // B8: accurate messages per known status. The old single message
+        // claimed every non-hr_approved row "must be HR approved first",
+        // which was wrong for already-approved rows.
+        if ($leave->status === 'approved') {
+            return back()->with('error', 'This leave request has already been approved.');
+        }
+        if ($leave->status === 'rejected') {
+            return back()->with('error', 'This leave request has already been rejected and cannot be approved.');
+        }
+        if ($leave->status === 'cancelled') {
+            return back()->with('error', 'This leave request has been cancelled and cannot be approved.');
+        }
+        if ($leave->status === 'pending') {
+            return back()->with('error', 'Leave request must be HR approved first.');
+        }
+        if (!in_array($leave->status, ['hr_approved', 'manager_approved'], true)) {
             return back()->with('error', 'Leave request must be HR approved first.');
         }
 
+        // B4 DM-finalise step: only a DM, different from both stored
+        // approvers, may move manager_approved -> approved. HR and
+        // super_admin do not bypass this step.
+        if ($leave->status === 'manager_approved') {
+            if (!Auth::user()->isDM()) {
+                abort(403, 'Only a DM can give final approval to this leave request.');
+            }
+            if (Auth::id() === (int) $leave->hr_approved_by || Auth::id() === (int) $leave->manager_approved_by) {
+                abort(403, 'You already approved this request at an earlier step, so a different DM must give final approval.');
+            }
+
+            $oldStatus = $leave->status;
+            $affected = DB::transaction(function () use ($leave) {
+                return LeaveRequest::where('id', $leave->id)
+                    ->where('status', 'manager_approved')
+                    ->update(['status' => 'approved']);
+            });
+
+            if ($affected === 0) {
+                return back()->with('error', 'Leave request already processed.');
+            }
+
+            $leave->refresh();
+
+            // Email notification (no-op until enabled). WF-14: failures are
+            // logged, never allowed to 500 the transition.
+            $this->notifySafely(fn () => app(\App\Services\LeaveNotificationService::class)->notifyStatusChanged($leave));
+
+            // Log activity (the DM finaliser is recorded here; there are
+            // no dm_* columns to stamp — see the docblock above).
+            ActivityLog::create([
+                'user_id' => Auth::id(),
+                'action' => 'update',
+                'model_type' => LeaveRequest::class,
+                'model_id' => $leave->id,
+                'description' => "Leave request DM approved (was {$oldStatus})",
+                'ip_address' => $request->ip(),
+            ]);
+
+            return back()->with('success', 'Leave request fully approved.');
+        }
+
+        // hr_approved step.
+        // B2(b): the actor who did the HR step may not do this step.
+        // B6: hr_approved_by stores a USER id going forward; legacy rows
+        // stored an employee id and cannot be trusted for this comparison.
+        if (Auth::id() === (int) $leave->hr_approved_by) {
+            abort(403, 'You approved this request at the HR step, so a different approver must complete the next step.');
+        }
+
+        // B4: manager/DM requesters need the DM step (manager_approved);
+        // plain employees — and rows with no requester role chain — finish
+        // here (approved). needsManagerApproval() is the complement of
+        // this check for the employee path.
+        $needsDM = $leave->needsDMApproval();
+        $targetStatus = $needsDM ? 'manager_approved' : 'approved';
+
         $oldStatus = $leave->status;
-        $affected = DB::transaction(function () use ($leave, $request) {
+        $affected = DB::transaction(function () use ($leave, $request, $targetStatus) {
             return LeaveRequest::where('id', $leave->id)
                 ->where('status', 'hr_approved')
                 ->update([
-                    'status' => 'approved',
-                    'manager_approved_by' => Auth::user()->employee?->id,
+                    'status' => $targetStatus,
+                    'manager_approved_by' => Auth::id(),
                     'manager_approved_at' => now(),
                     'manager_comments' => $request->manager_comments ?? null,
                 ]);
         });
 
         if ($affected === 0) {
-            return back()->with('error', 'Leave request must be HR approved first.');
+            return back()->with('error', 'Leave request already processed.');
         }
 
         $leave->refresh();
@@ -1073,11 +1232,15 @@ class LeaveController extends Controller
             'action' => 'update',
             'model_type' => LeaveRequest::class,
             'model_id' => $leave->id,
-            'description' => "Leave request manager approved (was {$oldStatus})",
+            'description' => $needsDM
+                ? "Leave request manager approved (was {$oldStatus}; awaiting DM final approval)"
+                : "Leave request manager approved (was {$oldStatus})",
             'ip_address' => $request->ip(),
         ]);
 
-        return back()->with('success', 'Leave request fully approved.');
+        return back()->with('success', $needsDM
+            ? 'Leave request manager approved. A DM must now give final approval.'
+            : 'Leave request fully approved.');
     }
 
     /**
@@ -1112,9 +1275,17 @@ class LeaveController extends Controller
                 ->whereIn('status', ['pending', 'hr_approved'])
                 ->update([
                     'status' => 'rejected',
-                    'rejected_by' => Auth::user()->employee?->id,
+                    'rejected_by' => Auth::id(),
                     'rejected_at' => now(),
                     'rejection_reason' => $request->rejection_reason,
+                    // B8: clear any earlier approval stamps so a rejected
+                    // row never still names an HR/manager approver.
+                    'hr_approved_by' => null,
+                    'hr_approved_at' => null,
+                    'hr_comments' => null,
+                    'manager_approved_by' => null,
+                    'manager_approved_at' => null,
+                    'manager_comments' => null,
                 ]);
         });
 
@@ -1150,7 +1321,9 @@ class LeaveController extends Controller
      * Ownership + pending-status guards are unchanged (they are what the
      * route patch relies on — see routes PATCH-NOTE). WF-13: the cancel
      * is now written to the activity log before the delete, in the same
-     * pattern as hrApprove.
+     * pattern as hrApprove. B5: the soft delete is kept, but the row is
+     * first stamped 'cancelled' so withTrashed/audit reads show it as
+     * cancelled rather than pending.
      */
     public function cancel(Request $request, LeaveRequest $leave)
     {
@@ -1180,9 +1353,13 @@ class LeaveController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
+        // B5: stamp 'cancelled' BEFORE the soft delete (see docblock).
+        $leave->status = 'cancelled';
+        $leave->save();
+
         $leave->delete();
 
-        return redirect()->route('leaves.my-leaves')
+        return redirect()->route('leaves.my')
             ->with('success', 'Leave request cancelled.');
     }
 
@@ -1212,6 +1389,14 @@ class LeaveController extends Controller
 
         $employee = Employee::findOrFail($request->employee_id);
         $leaveType = LeaveType::findOrFail($request->leave_type_id);
+
+        // B2(c): HR recording their OWN historical leave as 'approved'
+        // would be self-approval — record it 'pending' instead so it
+        // goes through the workflow. A 'rejected' choice is kept as-is.
+        // No approver stamps are written on this path (as before).
+        $isOwnLeave = Auth::user()->employee?->id !== null
+            && (int) Auth::user()->employee->id === (int) $employee->id;
+        $effectiveStatus = ($request->status === 'approved' && $isOwnLeave) ? 'pending' : $request->status;
 
         $startDate = Carbon::parse($request->start_date);
         $endDate = Carbon::parse($request->end_date);
@@ -1261,7 +1446,7 @@ class LeaveController extends Controller
             'exit_reentry_required' => $request->boolean('exit_reentry_required', false),
             'hotel_booking_required' => $request->boolean('hotel_booking_required', false),
             'transfer_required' => $request->boolean('transfer_required', false),
-            'status' => $request->status,
+            'status' => $effectiveStatus,
             'is_historical' => true,
             'created_by' => Auth::id(),
         ]);
@@ -1276,7 +1461,9 @@ class LeaveController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        return back()->with('success', 'Historical leave recorded successfully.');
+        return back()->with('success', $isOwnLeave && $request->status === 'approved'
+            ? 'Historical leave recorded as pending. Your own leave cannot be recorded as approved directly — it must go through the approval workflow.'
+            : 'Historical leave recorded successfully.');
     }
 
     /**
@@ -1495,6 +1682,18 @@ class LeaveController extends Controller
     // ========================================
 
     /**
+     * B2(a): abort if the actor is trying to approve their own leave.
+     * An actor with no employee record cannot own a leave, so no block.
+     */
+    private function abortIfOwnLeave(LeaveRequest $leave): void
+    {
+        $actorEmployeeId = Auth::user()?->employee?->id;
+        if ($actorEmployeeId !== null && (int) $actorEmployeeId === (int) $leave->employee_id) {
+            abort(403, 'You cannot approve your own leave request.');
+        }
+    }
+
+    /**
      * M1: department-ownership gate for manager/dm actors on approve/reject.
      * super_admin and hr_manager are exempt (company-wide). A manager/dm
      * with no managed department, or acting on another department's leave,
@@ -1518,7 +1717,7 @@ class LeaveController extends Controller
     /**
      * WF-04/M2: first existing leave of this employee whose date range
      * overlaps [start_date, end_date] and whose status can still count
-     * (pending, hr_approved, approved). Overlap = new.start <= existing.end
+     * (pending, hr_approved, manager_approved, approved). Overlap = new.start <= existing.end
      * AND new.end >= existing.start. Rejected/cancelled rows never conflict;
      * soft-deleted rows are excluded by the default scope.
      */
@@ -1526,7 +1725,7 @@ class LeaveController extends Controller
     {
         return LeaveRequest::with('leaveType')
             ->where('employee_id', $employeeId)
-            ->whereIn('status', ['pending', 'hr_approved', 'approved'])
+            ->whereIn('status', ['pending', 'hr_approved', 'manager_approved', 'approved'])
             ->where('start_date', '<=', $endDate)
             ->where('end_date', '>=', $startDate)
             ->orderBy('start_date')

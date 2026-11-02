@@ -180,13 +180,37 @@ class DashboardController extends Controller
                 
                 $teamEmployeeIds = $teamEmployees->pluck('id');
                 
-                // Pending approvals
+                // Pending approvals (awaiting HR — shown read-only on
+                // the dashboard; they are NOT manager-actionable yet).
                 $pendingApprovals = LeaveRequest::whereIn('employee_id', $teamEmployeeIds)
                     ->where('status', 'pending')
                     ->with(['employee.user', 'leaveType'])
                     ->orderBy('start_date')
                     ->get();
                 $pendingCount = $pendingApprovals->count();
+
+                // HR-approved approvals (dashboard visibility): rows HR
+                // has approved that now await the manager/DM step. Same
+                // department scope as $pendingApprovals above (the
+                // managed department only — never other departments).
+                // Pending rows are NOT included (they await HR, not the
+                // manager) and approved/rejected rows are NOT included.
+                $hrApprovedLeaves = LeaveRequest::whereIn('employee_id', $teamEmployeeIds)
+                    ->where('status', 'hr_approved')
+                    ->with(['employee.user', 'leaveType'])
+                    ->orderBy('start_date')
+                    ->get();
+
+                // B4 DM finalisation: manager_approved rows await a DM
+                // only. Loaded only for DM actors; plain managers never
+                // see them as actionable.
+                $dmFinalisationLeaves = $user->isDM()
+                    ? LeaveRequest::whereIn('employee_id', $teamEmployeeIds)
+                        ->where('status', 'manager_approved')
+                        ->with(['employee.user', 'leaveType'])
+                        ->orderBy('start_date')
+                        ->get()
+                    : collect();
                 
                 // Approved/rejected counts
                 $approvedCount = LeaveRequest::whereIn('employee_id', $teamEmployeeIds)
@@ -216,6 +240,8 @@ class DashboardController extends Controller
                 $data['teamEmployees'] = $teamEmployees;
                 $data['pendingApprovals'] = $pendingApprovals;
                 $data['pendingCount'] = $pendingCount;
+                $data['hrApprovedLeaves'] = $hrApprovedLeaves;
+                $data['dmFinalisationLeaves'] = $dmFinalisationLeaves;
                 $data['approvedCount'] = $approvedCount;
                 $data['rejectedCount'] = $rejectedCount;
                 $data['onLeaveToday'] = $onLeaveToday;

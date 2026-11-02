@@ -124,30 +124,12 @@
                                 </button>
                                 
                                 @if($leave->status === 'pending' && (auth()->user()->isHrManager() || auth()->user()->isSuperAdmin()))
-                                <form action="{{ route('leaves.hr-approve', $leave) }}" method="POST" class="d-inline">
+                                <form action="{{ route('leaves.hr-approve', $leave) }}" method="POST" class="d-inline" onsubmit="this.querySelector('button[type=submit]').disabled=true;">
                                     @csrf
                                     <button type="submit" class="btn btn-sm btn-success" title="HR Approve">
                                         <i class="fas fa-check"></i>
                                     </button>
                                 </form>
-                                @endif
-                                
-                                @if($leave->status === 'hr_approved')
-                                    @if(auth()->user()->isManager() && $leave->employee->user->role->name === 'employee')
-                                    <form action="{{ route('leaves.manager-approve', $leave) }}" method="POST" class="d-inline">
-                                        @csrf
-                                        <button type="submit" class="btn btn-sm btn-primary" title="Manager Approve">
-                                            <i class="fas fa-check-double"></i>
-                                        </button>
-                                    </form>
-                                    @elseif(auth()->user()->isDM() && in_array($leave->employee->user->role->name, ['manager', 'dm']))
-                                    <form action="{{ route('leaves.manager-approve', $leave) }}" method="POST" class="d-inline">
-                                        @csrf
-                                        <button type="submit" class="btn btn-sm btn-primary" title="DM Approve">
-                                            <i class="fas fa-check-double"></i>
-                                        </button>
-                                    </form>
-                                    @endif
                                 @endif
                                 
                                 @if(in_array($leave->status, ['pending', 'hr_approved']))
@@ -258,7 +240,7 @@
                         @if(in_array($leave->status, ['pending', 'hr_approved']))
                         <div class="modal fade" id="rejectModal{{ $leave->id }}" tabindex="-1">
                             <div class="modal-dialog">
-                                <form action="{{ route('leaves.reject', $leave) }}" method="POST">
+                                <form action="{{ route('leaves.reject', $leave) }}" method="POST" onsubmit="this.querySelector('button[type=submit]').disabled=true;">
                                     @csrf
                                     <div class="modal-content">
                                         <div class="modal-header">
@@ -266,6 +248,11 @@
                                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                         </div>
                                         <div class="modal-body">
+                                            @if($errors->any())
+    <div class="alert alert-danger">
+        <i class="fas fa-exclamation-circle me-2"></i>{{ $errors->first() }}
+    </div>
+@endif
                                             <div class="mb-3">
                                                 <label class="form-label">Rejection Reason <span class="text-danger">*</span></label>
                                                 <textarea name="rejection_reason" class="form-control" required rows="3" placeholder="Enter reason for rejection..."></textarea>

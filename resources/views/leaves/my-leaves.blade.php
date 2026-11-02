@@ -19,6 +19,11 @@
             <h5 class="mb-0"><i class="fas fa-calendar-plus"></i> Leave Request Form</h5>
         </div>
         <div class="card-body">
+            @if($errors->any())
+    <div class="alert alert-danger">
+        <i class="fas fa-exclamation-circle me-2"></i>{{ $errors->first() }}
+    </div>
+@endif
             <form method="POST" action="{{ route('leaves.store') }}" id="leaveForm">
                 @csrf
                 <div class="row">
@@ -201,9 +206,9 @@
                             </td>
                             <td>
                                 @if($leave->status === 'pending')
-                                    <form action="{{ route('leaves.cancel', $leave) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('leaves.cancel', $leave) }}" method="POST" class="d-inline" onsubmit="if(!confirm('Cancel this leave request?')) return false; this.querySelector('button[type=submit]').disabled=true;">
                                         @csrf
-                                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Cancel this leave request?')">Cancel</button>
+                                        <button type="submit" class="btn btn-sm btn-danger">Cancel</button>
                                     </form>
                                 @endif
                                 <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#viewModal{{ $leave->id }}">View</button>
